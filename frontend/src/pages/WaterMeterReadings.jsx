@@ -24,7 +24,7 @@ const WaterMeterReadings = () => {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-100 to-sky-300">
+    <div className="min-h-screen bg-gradient-to-b from-sky-100 to-sky-300 pt-16">
       <div className="max-w-5xl mx-auto px-4 py-10">
         <h1 className="text-3xl font-bold text-sky-800 text-center mb-10">
           💧 Smart Water Meter Readings
