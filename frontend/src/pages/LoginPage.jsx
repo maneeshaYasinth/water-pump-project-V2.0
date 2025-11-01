@@ -15,7 +15,7 @@ function LoginPage() {
       const res = await loginUser(form);
       alert("Login successful!");
       console.log(res.data);
-      navigate("/dashboard"); 
+      navigate("/water-meter-readings"); 
     } catch (err) {
       alert(err.response?.data?.message || "Login failed");
     }
