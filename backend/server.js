@@ -16,9 +16,13 @@ app.use(express.json());
 app.use(cors());
 app.use(cookieParser());
 
-// Routes
+// auth Routes
 const authRoutes = require("./routes/authRoutes");
 app.use("/api/auth", authRoutes);
+
+// water Routes
+const waterRoutes = require("./routes/waterRoutes");
+app.use("/api/water", waterRoutes);
 
 // Server
 const PORT = process.env.PORT || 5000;
