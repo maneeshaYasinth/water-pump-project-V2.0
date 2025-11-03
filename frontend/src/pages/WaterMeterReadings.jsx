@@ -3,23 +3,26 @@ import { getWaterData } from "../services/waterService";
 
 const WaterMeterReadings = () => {
   const [data, setData] = useState(null);
+  const [prevData, setPrevData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
-    setLoading(true);
     try {
       const waterData = await getWaterData();
+
+      // If new data differs, animate update
+      setPrevData(data);
       setData(waterData);
+      setLoading(false);
     } catch {
       setData(null);
-    } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 5000); // refresh every 5 sec
+    const interval = setInterval(fetchData, 5000); // refresh every 5s
     return () => clearInterval(interval);
   }, []);
 
@@ -31,9 +34,11 @@ const WaterMeterReadings = () => {
         </h1>
 
         {loading ? (
-          <p className="text-center text-sky-700">Loading live data...</p>
+          <p className="text-center text-sky-700 animate-pulse">
+            Loading live data...
+          </p>
         ) : data ? (
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6">
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 transition-all duration-500 ease-in-out">
             <ReadingCard title="Daily Consumption" value={`${data.Daily_consumption} L`} />
             <ReadingCard title="Flow Rate" value={`${data.Flow_Rate} L/min`} />
             <ReadingCard title="Monthly Units" value={`${data.Monthly_Units} m³`} />
@@ -49,9 +54,11 @@ const WaterMeterReadings = () => {
 };
 
 const ReadingCard = ({ title, value }) => (
-  <div className="bg-white/70 backdrop-blur-lg border border-sky-200 shadow-lg rounded-2xl p-6 text-center hover:scale-105 transition-transform">
+  <div className="bg-white/70 backdrop-blur-lg border border-sky-200 shadow-lg rounded-2xl p-6 text-center transform transition duration-700 hover:scale-105 hover:shadow-sky-200">
     <h2 className="text-lg font-semibold text-sky-700">{title}</h2>
-    <p className="text-2xl font-bold text-sky-900 mt-2">{value}</p>
+    <p className="text-2xl font-bold text-sky-900 mt-2 transition-opacity duration-500 ease-in-out animate-fade-in">
+      {value}
+    </p>
   </div>
 );
 
