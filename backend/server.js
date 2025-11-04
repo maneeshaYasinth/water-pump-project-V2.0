@@ -20,9 +20,11 @@ app.use(cookieParser());
 const authRoutes = require("./routes/authRoutes");
 app.use("/api/auth", authRoutes);
 
-// water Routes
-const waterRoutes = require("./routes/waterRoutes");
-app.use("/api/water", waterRoutes);
+const meterRoutes = require("./routes/waterRoutes");
+app.use("/api/meters", meterRoutes);
+
+const readingRoutes = require("./routes/meterReadingRoutes");
+app.use("/api/readings", readingRoutes);
 
 // Server
 const PORT = process.env.PORT || 5000;

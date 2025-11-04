@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import HouseholdsPage from './pages/HouseholdsPage';
 import LoginPage from './pages/LoginPage';
 import WaterMeterReadings from './pages/WaterMeterReadings';
+import MeterSelection from './pages/MeterSelection'
 
 // Layout for pages with Navbar
 const AppLayout = () => (
@@ -22,6 +23,7 @@ function App() {
       <Route path="/" element={<LoginPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/water-meter-readings" element={<WaterMeterReadings />} />
+      <Route path="/select-meter" element={<MeterSelection />} />
 
       {/* Protected / pages with navbar */}
       <Route element={<AppLayout />}>

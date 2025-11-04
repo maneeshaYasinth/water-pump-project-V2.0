@@ -1,21 +1,26 @@
 import React, { useState } from "react";
-import { loginUser } from "../services/api";
-import { Mail, Lock, Droplets, Cpu } from "lucide-react";
+import { loginUser } from "../services/authService"; // ✅ use authService
+import { Mail, Lock, Droplets } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import InputField from "../components/InputField";
 import WaterBackground from "../components/WaterBackground";
 
 function LoginPage() {
-  const [form, setForm] = useState({ email: "", password: "", modelNumber: "" });
+  const [form, setForm] = useState({ email: "", password: "" });
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       const res = await loginUser(form);
+      // ✅ Save token to local storage
+      localStorage.setItem("token", res.data.token);
+
       alert("Login successful!");
-      console.log(res.data);
-      navigate("/water-meter-readings"); 
+      console.log("User logged in:", res.data);
+
+      // ✅ Navigate to meter selection page
+      navigate("/select-meter");
     } catch (err) {
       alert(err.response?.data?.message || "Login failed");
     }
@@ -49,13 +54,6 @@ function LoginPage() {
           placeholder="Password"
           value={form.password}
           onChange={(e) => setForm({ ...form, password: e.target.value })}
-        />
-        <InputField
-          icon={Cpu}
-          type="text"
-          placeholder="Model Number"
-          value={form.modelNumber}
-          onChange={(e) => setForm({ ...form, modelNumber: e.target.value })}
         />
 
         <button

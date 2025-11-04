@@ -7,18 +7,21 @@ dotenv.config();
 // Register user
 const register = async (req, res) => {
   try {
-    const { name, email, password, modelNumber } = req.body;
+    const { name, email, password } = req.body;
 
-    if (!name || !email || !password || !modelNumber) {
+    // Check required fields
+    if (!name || !email || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
+    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    const user = await User.create({ name, email, password, modelNumber });
+    // Create new user
+    const user = await User.create({ name, email, password });
 
     res.status(201).json({
       message: "User registered successfully",
@@ -26,7 +29,6 @@ const register = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        modelNumber: user.modelNumber,
       },
     });
   } catch (err) {
@@ -38,27 +40,29 @@ const register = async (req, res) => {
 // Login user
 const login = async (req, res) => {
   try {
-    const { email, password, modelNumber } = req.body;
+    const { email, password } = req.body;
 
-    if (!email || !password || !modelNumber) {
+    // Check required fields
+    if (!email || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    const user = await User.findOne({ email, modelNumber });
+    // Find user by email
+    const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: "User or model number not found" });
+      return res.status(400).json({ message: "Invalid email or password" });
     }
 
+    // Compare password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" });
+      return res.status(400).json({ message: "Invalid email or password" });
     }
 
-    const token = jwt.sign(
-      { userId: user._id, modelNumber: user.modelNumber },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    // Generate JWT token
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
     res.status(200).json({
       message: "Login successful",
@@ -67,7 +71,6 @@ const login = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        modelNumber: user.modelNumber,
       },
     });
   } catch (err) {
