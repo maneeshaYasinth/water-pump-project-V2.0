@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getWaterData } from "../services/waterService";
+import Loader from "../components/Loader";
 
 const WaterMeterReadings = () => {
   const [data, setData] = useState(null);
@@ -34,9 +35,7 @@ const WaterMeterReadings = () => {
         </h1>
 
         {loading ? (
-          <p className="text-center text-sky-700 animate-pulse">
-            Loading live data...
-          </p>
+          <Loader />
         ) : data ? (
           <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 transition-all duration-500 ease-in-out">
             <ReadingCard title="Daily Consumption" value={`${data.Daily_consumption} L`} />

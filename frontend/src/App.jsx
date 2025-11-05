@@ -5,7 +5,6 @@ import HouseholdsPage from './pages/HouseholdsPage';
 import LoginPage from './pages/LoginPage';
 import WaterMeterReadings from './pages/WaterMeterReadings';
 import MeterSelection from './pages/MeterSelection'
-
 // Layout for pages with Navbar
 const AppLayout = () => (
   <>
