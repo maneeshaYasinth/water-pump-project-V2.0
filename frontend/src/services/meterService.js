@@ -1,7 +1,7 @@
 import API from "./api.js";
 
 // Get all user meters
-export const getUserMeters = () => API.get("/meters/my-meters");
+export const getUserMeters = () => API.get("/water/my-meters");
 
 // Get live data for selected meter
 export const getMeterData = (serialNumber) =>

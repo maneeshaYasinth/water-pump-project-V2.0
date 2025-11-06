@@ -2,12 +2,24 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 
 // User Schema
+// Define user roles
+const USER_ROLES = {
+  USER: 'user',
+  ADMIN: 'admin',
+  AUTHORITY: 'authority'
+};
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    // modelNumber removed
+    role: { 
+      type: String, 
+      enum: Object.values(USER_ROLES),
+      default: USER_ROLES.USER 
+    },
+    councilArea: { type: String, required: false } // For admin and authority users
   },
   { timestamps: true }
 );

@@ -20,8 +20,8 @@ app.use(cookieParser());
 const authRoutes = require("./routes/authRoutes");
 app.use("/api/auth", authRoutes);
 
-const meterRoutes = require("./routes/waterRoutes");
-app.use("/api/meters", meterRoutes);
+const waterRoutes = require("./routes/waterRoutes");
+app.use("/api/water", waterRoutes);
 
 const readingRoutes = require("./routes/meterReadingRoutes");
 app.use("/api/readings", readingRoutes);

@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { ref, onValue } from "firebase/database";
 import { db } from "../firebase"; 
+import { useNavigate } from "react-router-dom";
+import { isAdminOrAuthority, getUserCouncilArea } from "../services/authService";
+import AdminDashboard from "../components/AdminDashboard";
 import {
   AreaChart,
   Area,
@@ -23,69 +26,155 @@ import {
   Check,
 } from "lucide-react";
 
-// --- MOCK DATA (for parts that are not live yet) ---
-const alertsData = [
-  { name: "North Ward", pressure: 3.6, status: "issue", issues: 1 },
-  { name: "East Ward", pressure: 3.1, status: "ok" },
-  { name: "West Ward", pressure: 0.0, status: "issue", issues: 2 },
-];
+// Admin specific components
+const AdminControls = ({ meter, isAuthority }) => {
+  const handleValveControl = async (meterId, action) => {
+    try {
+      await fetch(`/api/water/valve-control/${meterId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ action })
+      });
+    } catch (error) {
+      console.error('Error controlling valve:', error);
+    }
+  };
 
-const areasData = [
-  { name: "North Ward", flow: 920, consumption: 1342, pressure: 3.6, valve: "Open" },
-  { name: "East Ward", flow: 610, consumption: 982, pressure: 3.1, valve: "Open" },
-  { name: "West Ward", flow: 0, consumption: 450, pressure: 0.0, valve: "Closed" },
-];
+  return (
+    <div className="mt-4 flex gap-2">
+      {isAuthority && (
+        <>
+          <button
+            onClick={() => handleValveControl(meter.id, 'open')}
+            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+          >
+            Open Valve
+          </button>
+          <button
+            onClick={() => handleValveControl(meter.id, 'close')}
+            className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+          >
+            Close Valve
+          </button>
+        </>
+      )}
+      <div className="px-3 py-1 bg-gray-100 rounded">
+        Status: {meter.valve_status ? 'Open' : 'Closed'}
+      </div>
+    </div>
+  );
+};
 // ---------------------------------------------------
 
 
 export default function Dashboard() {
-  // State for your stat cards (the single, latest value)
+  const navigate = useNavigate();
+  const userIsAdmin = isAdminOrAuthority();
+  const councilArea = getUserCouncilArea();
+
+  // State for regular user view
   const [currentData, setCurrentData] = useState({
     Flow_Rate: 0,
     Pressure: 0,
-    // ...other values
+    Total_Consumption: 0
   });
-
-  // State for the graph (an array of history)
   const [chartData, setChartData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [councilMeters, setCouncilMeters] = useState([]);
+
+  // Check authentication and redirect if necessary
+  useEffect(() => {
+    const user = JSON.parse(localStorage.getItem("user"));
+    if (!user) {
+      navigate("/login");
+    }
+  }, [navigate]);
+
+  // Fetch council area meters for admin/authority users
+  useEffect(() => {
+    if (userIsAdmin && councilArea) {
+      const fetchCouncilMeters = async () => {
+        try {
+          const metersRef = ref(db, `Meter_Readings/${councilArea}`);
+          onValue(metersRef, (snapshot) => {
+            if (snapshot.exists()) {
+              const metersData = snapshot.val();
+              setCouncilMeters(Object.entries(metersData).map(([id, data]) => ({
+                id,
+                ...data,
+              })));
+            }
+            setLoading(false);  // Set loading to false regardless of data existence
+          });
+        } catch (error) {
+          console.error("Error fetching council meters:", error);
+          setLoading(false);  // Set loading to false on error
+        }
+      };
+
+      fetchCouncilMeters();
+    } else {
+      setLoading(false);  // Set loading to false if not admin or no council area
+    }
+  }, [userIsAdmin, councilArea]);
 
   useEffect(() => {
-    const dataRef = ref(db, "Meter_Readings");
+    if (!userIsAdmin) { // Only fetch for regular users
+      const dataRef = ref(db, "Meter_Readings");
+      const unsubscribe = onValue(dataRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const newData = snapshot.val();
+          
+          // 1. Update the state for your stat cards
+          setCurrentData(newData);
 
-    onValue(dataRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const newData = snapshot.val();
-        
-        // 1. Update the state for your stat cards
-        setCurrentData(newData);
+          // 2. Add new reading and filter for last 5 minutes
+          setChartData(prevData => {
+            const now = Date.now();
+            const fiveMinutesInMs = 5 * 60 * 1000;
+            const fiveMinutesAgo = now - fiveMinutesInMs;
 
-        // 2. Add new reading and filter for last 5 minutes
-        setChartData(prevData => {
-          const now = Date.now();
-          const fiveMinutesInMs = 5 * 60 * 1000;
-          const fiveMinutesAgo = now - fiveMinutesInMs;
+            const newPoint = {
+              timestamp: now, 
+              time: new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              flow: newData.Flow_Rate, 
+            };
 
-          const newPoint = {
-            timestamp: now, 
-            time: new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            flow: newData.Flow_Rate, 
-          };
+            const updatedHistory = [...prevData, newPoint];
+            const filteredHistory = updatedHistory.filter(
+              point => point.timestamp >= fiveMinutesAgo
+            );
 
-          const updatedHistory = [...prevData, newPoint];
-          const filteredHistory = updatedHistory.filter(
-            point => point.timestamp >= fiveMinutesAgo
-          );
+            return filteredHistory;
+          });
+        }
+        setLoading(false);
+      }, (error) => {
+        console.error("Error fetching meter readings:", error);
+        setLoading(false);
+      });
 
-          return filteredHistory;
-        });
-      }
-    });
-  }, []);
+      return () => unsubscribe();
+    }
+  }, [userIsAdmin]);
 
-  return (
-    // You might need to adjust padding-top (pt-24) to match your Navbar height
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  return userIsAdmin ? (
+    // Admin/Authority view
+    <AdminDashboard councilArea={councilArea} />
+  ) : (
+    // Regular user view
     <div className="min-h-screen bg-gray-100 p-6">
-      
       {/* Top Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
         <StatCard 

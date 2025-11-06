@@ -7,7 +7,7 @@ dotenv.config();
 // Register user
 const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, role, councilArea } = req.body;
 
     // Check required fields
     if (!name || !email || !password) {
@@ -20,8 +20,24 @@ const register = async (req, res) => {
       return res.status(400).json({ message: "User already exists" });
     }
 
+    // Validate role if provided
+    if (role && !['admin', 'authority'].includes(role)) {
+      return res.status(400).json({ message: "Invalid role specified" });
+    }
+
+    // Check if councilArea is provided for admin and authority roles
+    if ((role === 'admin' || role === 'authority') && !councilArea) {
+      return res.status(400).json({ message: "Council area is required for admin and authority roles" });
+    }
+
     // Create new user
-    const user = await User.create({ name, email, password });
+    const user = await User.create({ 
+      name, 
+      email, 
+      password,
+      role: role || 'user',
+      councilArea: role === 'user' ? undefined : councilArea
+    });
 
     res.status(201).json({
       message: "User registered successfully",
@@ -29,6 +45,8 @@ const register = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        role: user.role,
+        councilArea: user.councilArea
       },
     });
   } catch (err) {
@@ -60,9 +78,17 @@ const login = async (req, res) => {
     }
 
     // Generate JWT token
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    const token = jwt.sign(
+      { 
+        userId: user._id,
+        role: user.role,
+        councilArea: user.councilArea
+      }, 
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
 
     res.status(200).json({
       message: "Login successful",
@@ -70,6 +96,8 @@ const login = async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
+        role: user.role,
+        councilArea: user.councilArea,
         email: user.email,
       },
     });

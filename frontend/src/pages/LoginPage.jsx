@@ -13,14 +13,17 @@ function LoginPage() {
     e.preventDefault();
     try {
       const res = await loginUser(form);
-      // ✅ Save token to local storage
+      
+      // Save user data and token
       localStorage.setItem("token", res.data.token);
+      localStorage.setItem("user", JSON.stringify(res.data.user));
 
-      alert("Login successful!");
-      console.log("User logged in:", res.data);
-
-      // ✅ Navigate to meter selection page
-      navigate("/select-meter");
+      // Redirect based on user role
+      if (res.data.user.role === 'admin' || res.data.user.role === 'authority') {
+        navigate("/dashboard");
+      } else {
+        navigate("/meters");
+      }
     } catch (err) {
       alert(err.response?.data?.message || "Login failed");
     }
