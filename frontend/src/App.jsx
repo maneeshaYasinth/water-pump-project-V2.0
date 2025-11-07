@@ -5,6 +5,11 @@ import HouseholdsPage from './pages/HouseholdsPage';
 import LoginPage from './pages/LoginPage';
 import WaterMeterReadings from './pages/WaterMeterReadings';
 import MeterSelection from './pages/MeterSelection';
+import AreasPage from './pages/AreasPage';
+import UsersPage from './pages/UsersPage';
+import BillingPage from './pages/BillingPage';
+import AlertsPage from './pages/AlertsPage';
+import SettingsPage from './pages/SettingsPage';
 import { AdminRoute, UserRoute } from './components/ProtectedRoute';
 import { isAdminOrAuthority } from './services/authService';
 
@@ -41,6 +46,11 @@ function App() {
   }>
     <Route path="/dashboard" element={<Dashboard />} />
     <Route path="/households" element={<HouseholdsPage />} />
+    <Route path="/areas" element={<AreasPage />} />
+    <Route path="/users" element={<UsersPage />} />
+    <Route path="/billing" element={<BillingPage />} />
+    <Route path="/alerts" element={<AlertsPage />} />
+    <Route path="/settings" element={<SettingsPage />} />
   </Route>
 
   {/* Regular user routes without navbar */}

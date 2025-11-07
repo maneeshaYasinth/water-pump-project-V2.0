@@ -10,6 +10,7 @@ import {
   Check,
   Power,
 } from 'lucide-react';
+import { isAuthority } from '../services/authService';
 
 // --- MOCK DATA ---
 // TODO: Replace this with data from Firebase
@@ -142,7 +143,28 @@ function StatusTag({ status }) {
  * Main Households Page Component
  */
 function HouseholdsPage() {
-  // TODO: Add state and effects to fetch/filter data
+  const userIsAuthority = isAuthority();
+  
+  const handleCutOff = async (meterId) => {
+    if (!userIsAuthority) {
+      return;
+    }
+    
+    try {
+      await fetch(`/api/water/valve-control/${meterId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ action: 'close' })
+      });
+      
+      // Refresh data or update UI accordingly
+    } catch (error) {
+      console.error('Error controlling valve:', error);
+    }
+  };
   
   return (
     <div className="min-h-screen bg-gray-100 p-6 ">
@@ -241,8 +263,11 @@ function HouseholdsPage() {
                           Restore
                         </button>
                       )}
-                      {row.actions.includes("Cut Off") && (
-                        <button className="flex items-center justify-center gap-1 w-full max-w-[100px] px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500">
+                      {row.actions.includes("Cut Off") && userIsAuthority && (
+                        <button 
+                          onClick={() => handleCutOff(row.meter)}
+                          className="flex items-center justify-center gap-1 w-full max-w-[100px] px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                        >
                           <Power className="w-3.5 h-3.5" />
                           Cut Off
                         </button>
