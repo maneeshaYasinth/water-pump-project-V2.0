@@ -29,8 +29,14 @@ import {
 // Admin-specific valve control
 // ────────────────────────────────
 const AdminControls = ({ meter, isAuthority }) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const user = JSON.parse(localStorage.getItem("user"));
+  const isActualAuthority = user?.role === "authority"; // Check if user is an authority
+
   const handleValveControl = async (meterId, action) => {
+    if (!isActualAuthority) return; // Extra security check
     try {
+      setIsLoading(true);
       await fetch(`/api/water/valve-control/${meterId}`, {
         method: "POST",
         headers: {
@@ -41,29 +47,75 @@ const AdminControls = ({ meter, isAuthority }) => {
       });
     } catch (error) {
       console.error("Error controlling valve:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // View-only status for non-authority users (including admin)
+  if (!isActualAuthority) {
+    return (
+      <div className="px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${
+            meter.valve_status ? 'bg-green-500' : 'bg-red-500'
+          }`} />
+          <p className="text-sm text-gray-600">
+            Valve Status: <span className="font-medium">{meter.valve_status ? "Open" : "Closed"}</span>
+          </p>
+          {isAuthority && !isActualAuthority && (
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+              View Only (Authority Required)
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Control panel for authority users only
   return (
-    <div className="mt-4 flex gap-2">
-      {isAuthority && (
-        <>
-          <button
-            onClick={() => handleValveControl(meter.id, "open")}
-            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
-          >
-            Open Valve
-          </button>
-          <button
-            onClick={() => handleValveControl(meter.id, "close")}
-            className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-          >
-            Close Valve
-          </button>
-        </>
-      )}
-      <div className="px-3 py-1 bg-gray-100 rounded">
-        Status: {meter.valve_status ? "Open" : "Closed"}
+    <div className="flex flex-col gap-2">
+      <div className="inline-flex rounded-lg overflow-hidden border border-gray-200">
+        <button
+          onClick={() => handleValveControl(meter.id, "open")}
+          disabled={isLoading || meter.valve_status}
+          className={`px-4 py-2 flex items-center justify-center text-sm font-medium ${
+            meter.valve_status
+              ? "bg-green-50 text-green-700 cursor-not-allowed"
+              : "bg-white text-green-600 hover:bg-green-50 hover:text-green-700"
+          } border-r border-gray-200 transition-colors`}
+        >
+          {isLoading ? (
+            <div className="w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <>
+              <Power className="w-4 h-4 mr-1.5" />
+              Open Valve
+            </>
+          )}
+        </button>
+        <button
+          onClick={() => handleValveControl(meter.id, "close")}
+          disabled={isLoading || !meter.valve_status}
+          className={`px-4 py-2 flex items-center justify-center text-sm font-medium ${
+            !meter.valve_status
+              ? "bg-red-50 text-red-700 cursor-not-allowed"
+              : "bg-white text-red-600 hover:bg-red-50 hover:text-red-700"
+          } transition-colors`}
+        >
+          {isLoading ? (
+            <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+          ) : (
+            <>
+              <Power className="w-4 h-4 mr-1.5" />
+              Close Valve
+            </>
+          )}
+        </button>
+      </div>
+      <div className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded">
+        Authority Access Granted
       </div>
     </div>
   );
@@ -255,31 +307,71 @@ export default function Dashboard() {
   // ─── Admin / Authority Dashboard ────────────
   if (userIsAdmin) {
     return (
-      <div className="min-h-screen bg-gray-100 p-6">
-        <h2 className="text-2xl font-semibold mb-6">
-          Council Overview — {councilArea || "N/A"}
-        </h2>
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="mb-6">
+          <h2 className="text-2xl font-semibold text-gray-800">
+            Council Overview
+          </h2>
+          <p className="text-gray-600">
+            {councilArea || "Please select a council area"}
+          </p>
+        </div>
+
         <div className="grid grid-cols-1 gap-6">
           {councilMeters.map((meter) => (
             <div
               key={meter.id}
-              className="bg-white p-6 rounded-lg shadow flex justify-between items-center"
+              className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200"
             >
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800">
-                  Meter ID: {meter.id}
-                </h3>
-                <p className="text-gray-600 text-sm">
-                  Flow Rate: {meter.Flow_Rate || 0} L/min
-                </p>
-                <p className="text-gray-600 text-sm">
-                  Pressure: {meter.Pressure || 0} bar
-                </p>
-                <p className="text-gray-600 text-sm">
-                  Total: {meter.Total_Consumption || 0} L
-                </p>
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="flex items-center space-x-3">
+                    <h3 className="text-lg font-semibold text-gray-800">
+                      Meter {meter.id}
+                    </h3>
+                    <span 
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        meter.valve_status 
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-red-100 text-red-800'
+                      }`}
+                    >
+                      {meter.valve_status ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                  
+                  <div className="mt-4 grid grid-cols-3 gap-4">
+                    <div className="p-3 bg-blue-50 rounded-lg">
+                      <p className="text-sm text-blue-600 font-medium">Flow Rate</p>
+                      <p className="text-xl font-semibold text-blue-900">
+                        {meter.Flow_Rate || 0}
+                        <span className="text-sm text-blue-600 ml-1">L/min</span>
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 bg-purple-50 rounded-lg">
+                      <p className="text-sm text-purple-600 font-medium">Pressure</p>
+                      <p className="text-xl font-semibold text-purple-900">
+                        {meter.Pressure || 0}
+                        <span className="text-sm text-purple-600 ml-1">bar</span>
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 bg-emerald-50 rounded-lg">
+                      <p className="text-sm text-emerald-600 font-medium">Total</p>
+                      <p className="text-xl font-semibold text-emerald-900">
+                        {meter.Total_Consumption || 0}
+                        <span className="text-sm text-emerald-600 ml-1">L</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-end space-y-2">
+                  <span className="text-sm text-gray-500">Valve Control</span>
+                  <AdminControls meter={meter} isAuthority={userIsAdmin} />
+                </div>
               </div>
-              <AdminControls meter={meter} isAuthority={userIsAdmin} />
             </div>
           ))}
         </div>
@@ -410,20 +502,34 @@ export default function Dashboard() {
                       </td>
                       <td className="py-4 px-4 text-gray-700">{area.valve}</td>
                       <td className="py-4 px-4">
-                        <button
-                          className={`flex items-center justify-center px-4 py-2 rounded-lg text-white font-semibold text-sm ${
-                            area.valve === "Open"
-                              ? "bg-red-600 hover:bg-red-700"
-                              : "bg-green-600 hover:bg-green-700"
-                          }`}
-                        >
-                          {area.valve === "Open" ? (
-                            <Power className="w-4 h-4 mr-1.5" />
-                          ) : (
-                            <Check className="w-4 h-4 mr-1.5" />
-                          )}
-                          {area.valve === "Open" ? "Cut Off" : "Open Valve"}
-                        </button>
+                        {JSON.parse(localStorage.getItem("user"))?.role === "authority" ? (
+                          <button
+                            className={`flex items-center justify-center px-4 py-2 rounded-lg text-white font-semibold text-sm ${
+                              area.valve === "Open"
+                                ? "bg-red-600 hover:bg-red-700"
+                                : "bg-green-600 hover:bg-green-700"
+                            }`}
+                          >
+                            {area.valve === "Open" ? (
+                              <Power className="w-4 h-4 mr-1.5" />
+                            ) : (
+                              <Check className="w-4 h-4 mr-1.5" />
+                            )}
+                            {area.valve === "Open" ? "Cut Off" : "Open Valve"}
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block w-2 h-2 rounded-full ${
+                              area.valve === "Open" ? 'bg-green-500' : 'bg-red-500'
+                            }`} />
+                            <span className="text-sm text-gray-600">
+                              {area.valve}
+                            </span>
+                            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                              View Only
+                            </span>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -483,18 +589,23 @@ export default function Dashboard() {
 // ─── Helper Component ────────────
 function StatCard({ title, value, subtitle, icon, isAlert = false }) {
   return (
-    <div className="bg-white p-5 shadow rounded-lg flex items-center space-x-4">
-      <div className="flex-shrink-0 p-3 bg-gray-100 rounded-full">{icon}</div>
-      <div>
-        <p className="text-sm text-gray-500 font-medium">{title}</p>
-        <h2 className="text-2xl font-bold text-gray-800 my-1">{value}</h2>
-        <div className="flex justify-between items-center">
-          <p className="text-sm text-gray-400">{subtitle}</p>
-          {isAlert && (
-            <span className="text-xs text-red-500 font-bold bg-red-100 px-2 py-0.5 rounded-full ml-2">
-              View
-            </span>
-          )}
+    <div className="bg-white p-6 shadow-sm hover:shadow-md transition-shadow duration-200 rounded-xl">
+      <div className="flex items-start space-x-4">
+        <div className="shrink-0 p-3 bg-blue-50 rounded-xl">
+          {icon}
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-gray-600">{title}</p>
+          <h2 className="text-2xl font-bold text-gray-900 my-1">{value}</h2>
+          <div className="flex justify-between items-center">
+            <p className="text-sm text-gray-500">{subtitle}</p>
+            {isAlert && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                View
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
