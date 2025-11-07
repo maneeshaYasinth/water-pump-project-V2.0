@@ -1,15 +1,26 @@
 # Water Pump Project V2.0
 
 ## 🚀 Project Overview
-This project is a monitoring and control system for water pumps, built with a **MERN-stack** frontend and backend. The system allows users to view real-time readings from a smart water meter (daily consumption, flow rate, monthly units, pressure, total units) and manage associated households/pumps.
+This project is an advanced water pump monitoring and control system built with React and Firebase. It provides real-time monitoring of water meters, user management, and role-based access control for different user types (admin and regular users).
 
 ---
 
 ## 📂 Project Structure
+```
 water-pump-project-V2.0/
-├── backend/ ← Node.js + Express API
-├── frontend/ ← React-based UI
-└── .gitignore
+├── backend/                 # Node.js + Express + Firebase API
+│   ├── config/             # Database and Firebase configurations
+│   ├── controllers/        # Business logic
+│   ├── middleware/         # Auth middleware
+│   ├── models/            # Data models
+│   └── routes/            # API routes
+└── frontend/              # React + Vite application
+    ├── src/
+    │   ├── components/    # Reusable UI components
+    │   ├── pages/        # Main application pages
+    │   └── services/     # API and authentication services
+    └── public/           # Static assets
+```
 
 - **backend/**: Contains server-side logic, REST endpoints (e.g., `/api/water`, `/api/auth`), controllers, routes.
 - **frontend/**: Contains React UI, pages like Dashboard, HouseholdsPage, WaterMeterReadings, centralized API service, authentication, etc.
@@ -18,59 +29,77 @@ water-pump-project-V2.0/
 ---
 
 ## 🛠️ Key Features
-- User authentication (register/login) via `/api/auth`.
-- Authenticated route for live water meter readings from `/api/water`.
-- Automatic polling (e.g., every 5 seconds) to refresh live data in the UI.
-- Dashboard and households management (for future expansion).
-- Clean separation between service layer (API logic) and UI components.
-- Modular file structure to support expansion (e.g., pump control, alerts, CI/CD).
-
----
+- **Real-time Monitoring**
+  - Live water meter readings (flow rate, pressure, consumption)
+  - Dynamic charts showing 5-minute historical data
+  - Automatic data refresh
+- **Role-based Access Control**
+  - Admin dashboard with enhanced controls
+  - Regular user view with basic monitoring
+  - Area-specific data access for admins
+- **Advanced Dashboard**
+  - Interactive data visualization
+  - Area-wise meter readings for admins
+  - Cut-off controls (admin only)
+- **Navigation Features**
+  - Areas management
+  - Users overview
+  - Billing information
+  - Alerts system
+  - Settings configuration
 
 ## 🧱 Technologies Used
-- **Frontend**: React, React Router (v6+), Axios, Tailwind CSS (for UI styling)
-- **Backend**: Node.js, Express.js, (optionally) MongoDB or another data store
-- **HTTP Client**: Axios instance with token interceptor for authenticated requests
-- **Version Control**: Git & GitHub repository
+- **Frontend**
+  - React 18+ with Vite
+  - Tailwind CSS for styling
+  - Recharts for data visualization
+  - React Router v6
+- **Backend**
+  - Node.js with Express
+  - Firebase Realtime Database
+  - Firebase Authentication
+- **State Management**
+  - React Hooks
+  - Context API
+- **Real-time Updates**
+  - Firebase Realtime Database listeners
+  - WebSocket connections
 
 ---
 
 ## 📝 Getting Started
 
 ### Prerequisites
-- Node >= 14 or similar
+- Node.js >= 14
 - npm or yarn
-- (Optional) MongoDB or your chosen database
-- Environment variables (e.g., `JWT_SECRET`, DB connection string)
+- Firebase account and project setup
+- Environment variables for Firebase configuration
 
 ### Setup & Run
 
-1.  **Clone the repository**
-    ```bash
-    git clone [https://github.com/maneeshaYasinth/water-pump-project-V2.0.git](https://github.com/maneeshaYasinth/water-pump-project-V2.0.git)
-    cd water-pump-project-V2.0
-    ```
-2.  **Install dependencies for backend**
-    ```bash
-    cd backend
-    npm install
-    ```
-3.  **Start backend server**
-    ```bash
-    npm run dev
-    # or 
-    node server.js
-    ```
-4.  **Install dependencies for frontend**
-    ```bash
-    cd ../frontend
-    npm install
-    ```
-5.  **Start frontend development server**
-    ```bash
-    npm run start
-    ```
-6.  Visit `http://localhost:3000` (or your configured port) to access the app.
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/maneeshaYasinth/water-pump-project-V2.0.git
+   cd water-pump-project-V2.0
+   ```
+
+2. **Backend Setup**
+   ```bash
+   cd backend
+   npm install
+   # Configure your Firebase credentials in config/firebase.js
+   npm run dev
+   ```
+
+3. **Frontend Setup**
+   ```bash
+   cd frontend
+   npm install
+   # Configure your Firebase credentials in src/firebase.js
+   npm run dev
+   ```
+
+4. Access the application at `http://localhost:5173`
 
 ## 🧪 Usage
 - Register a new user via the frontend.
