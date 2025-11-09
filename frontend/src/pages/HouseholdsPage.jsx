@@ -211,13 +211,13 @@ function HouseholdsPage() {
             <thead className="bg-blue-800 text-white">
               <tr>
                 <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">ID</th>
+                <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Meter</th>
                 <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Owner</th>
                 <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Contact</th>
                 <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Address</th>
-                <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Meter</th>
                 <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Readings (m³)</th>
                 <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Bill (LKR)</th>
-                <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Status</th>
+                <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Billing Status</th>
                 <th className="py-3 px-4 text-left text-xs font-semibold uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -225,26 +225,26 @@ function HouseholdsPage() {
               {householdData.map((row) => (
                 <tr key={row.id} className="hover:bg-gray-50">
                   <td className="py-4 px-4 text-sm font-medium text-gray-900">{row.id}</td>
-                  <td className="py-4 px-4 text-sm text-gray-700">{row.owner}</td>
-                  <td className="py-4 px-4 text-sm text-gray-700">
-                    <div className="flex flex-col">
-                      <span className="font-medium">{row.contactId}</span>
-                      <span>{row.phone}</span>
-                      <span className="text-blue-600">{row.email}</span>
-                    </div>
-                  </td>
-                  <td className="py-4 px-4 text-sm text-gray-700">{row.address}</td>
-                  <td className="py-4 px-4 text-sm text-gray-700">{row.meter}</td>
-                  <td className="py-4 px-4 text-sm text-gray-700">
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-xs font-medium bg-red-100 text-red-800 px-2.5 py-0.5 rounded-full self-start">
-                        Late: {row.lateReading}
-                      </span>
-                      <span className="text-xs font-medium bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full self-start">
-                        Current: {row.currentReading}
-                      </span>
-                    </div>
-                  </td>
+                    <td className="py-4 px-4 text-sm text-gray-700">{row.meter}</td>
+                    <td className="py-4 px-4 text-sm text-gray-700">{row.owner}</td>
+                    <td className="py-4 px-4 text-sm text-gray-700">
+                      <div className="flex flex-col">
+                        <span className="font-medium">{row.contactId}</span>
+                        <span>{row.phone}</span>
+                        <span className="text-blue-600">{row.email}</span>
+                      </div>
+                    </td>
+                    <td className="py-4 px-4 text-sm text-gray-700">{row.address}</td>
+                    <td className="py-4 px-4 text-sm text-gray-700">
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-medium bg-red-100 text-red-800 px-2.5 py-0.5 rounded-full self-start">
+                          Last month reading: {row.lateReading}
+                        </span>
+                        <span className="text-xs font-medium bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full self-start">
+                          Current reading: {row.currentReading}
+                        </span>
+                      </div>
+                    </td>
                   <td className="py-4 px-4 text-sm font-medium text-gray-900">{row.bill}</td>
                   <td className="py-4 px-4 text-sm">
                     <StatusTag status={row.status} />

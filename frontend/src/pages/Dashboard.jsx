@@ -54,20 +54,21 @@ const AdminControls = ({ meter, isAuthority }) => {
 
   // View-only status for non-authority users (including admin)
   if (!isActualAuthority) {
+    // If the user is an admin, hide valve-related info entirely (view only removed)
+    if (user?.role === "admin") return null;
+
+    // For regular users (non-admin, non-authority) show a minimal status indicator
     return (
       <div className="px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${
-            meter.valve_status ? 'bg-green-500' : 'bg-red-500'
-          }`} />
+          <div
+            className={`w-2 h-2 rounded-full ${
+              meter.valve_status ? "bg-green-500" : "bg-red-500"
+            }`}
+          />
           <p className="text-sm text-gray-600">
-            Valve Status: <span className="font-medium">{meter.valve_status ? "Open" : "Closed"}</span>
+            <span className="font-medium">{meter.valve_status ? "Open" : "Closed"}</span>
           </p>
-          {isAuthority && !isActualAuthority && (
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-              View Only (Authority Required)
-            </span>
-          )}
         </div>
       </div>
     );
