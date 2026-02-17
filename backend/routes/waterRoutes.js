@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { authenticate, isAdminOrAuthority, isAuthority } = require("../middleware/authMiddleware");
+const { authenticate, isAdminOrAuthority } = require("../middleware/authMiddleware");
 const WaterMeter = require("../models/Meter");
 const { ref, set, get } = require("firebase/database");
 const db = require("../config/firebase");
@@ -74,14 +74,19 @@ router.get("/council-meters/:councilArea", isAdminOrAuthority, async (req, res) 
   }
 });
 
-// Control valve (authority only)
-router.post("/valve-control/:meterId", isAuthority, async (req, res) => {
+// Control valve (authority/admin can open/close, user can open/close own meter)
+router.post("/valve-control/:meterId", authenticate, async (req, res) => {
   try {
     const { meterId } = req.params;
     const { action } = req.body; // 'open' or 'close'
+    const userRole = req.user.role;
 
     if (!['open', 'close'].includes(action)) {
       return res.status(400).json({ message: "Invalid valve action" });
+    }
+
+    if (!['user', 'authority', 'admin'].includes(userRole)) {
+      return res.status(403).json({ message: "Access denied for valve control" });
     }
 
     const meter = await WaterMeter.findById(meterId);
@@ -89,14 +94,17 @@ router.post("/valve-control/:meterId", isAuthority, async (req, res) => {
       return res.status(404).json({ message: "Meter not found" });
     }
 
-    // Verify authority has access to this meter's council area
-    if (meter.councilArea !== req.user.councilArea) {
-      return res.status(403).json({ message: "Access denied for this meter" });
+    if (userRole === 'user') {
+      if (meter.user.toString() !== req.user.userId) {
+        return res.status(403).json({ message: "Access denied for this meter" });
+      }
+    } else if (meter.councilArea !== req.user.councilArea) {
+      return res.status(403).json({ message: "Access denied for this council area" });
     }
 
     // Update valve state in Firebase
     await set(ref(db, `Valve_Status/${meterId}`), {
-      status: action === 'open' ? 1 : 0,
+      status: action,
       lastUpdated: new Date().toISOString(),
       updatedBy: req.user.userId
     });

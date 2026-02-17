@@ -41,6 +41,11 @@ export default function Navbar() {
         <li>
           <Link to="/settings">Settings</Link>
         </li>
+        <li>
+          <a href="/live-meter-app.html" target="_blank" rel="noreferrer">
+            Live Meter
+          </a>
+        </li>
       </ul>
       <div className="flex items-center space-x-4">
         <span className="text-gray-600 capitalize">{userRole}</span>

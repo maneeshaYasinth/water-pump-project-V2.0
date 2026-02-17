@@ -12,7 +12,7 @@ export const getWaterData = async () => {
 
 export const getCouncilMeters = async (councilArea) => {
   try {
-    const res = await WATER_API.get(`/council-meters/${councilArea}`);
+    const res = await WATER_API.get(`/water/council-meters/${councilArea}`);
     return res.data;
   } catch (err) {
     console.error("Error fetching council meters:", err);
@@ -22,7 +22,7 @@ export const getCouncilMeters = async (councilArea) => {
 
 export const controlValve = async (meterId, action) => {
   try {
-    const res = await WATER_API.post(`/valve-control/${meterId}`, { action });
+    const res = await WATER_API.post(`/water/valve-control/${meterId}`, { action });
     return res.data;
   } catch (err) {
     console.error("Error controlling valve:", err);

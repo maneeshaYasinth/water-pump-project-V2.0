@@ -1,35 +1,112 @@
 import React, { useEffect, useState } from "react";
-import { getWaterData } from "../services/waterService";
+import { controlValve, getCouncilMeters, getWaterData } from "../services/waterService";
+import { getUserCouncilArea, isAuthority } from "../services/authService";
+import { getUserMeters } from "../services/meterService";
 import Loader from "../components/Loader";
 
 const WaterMeterReadings = () => {
   const [data, setData] = useState(null);
-  const [prevData, setPrevData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedMeterId, setSelectedMeterId] = useState(null);
+  const [valveOpen, setValveOpen] = useState(false);
+  const [controllingValve, setControllingValve] = useState(false);
+  const [valveMessage, setValveMessage] = useState("");
+
+  const userIsAuthority = isAuthority();
+  const councilArea = getUserCouncilArea();
+
+  const selectedSerialNumber = localStorage.getItem("selectedMeter");
+
+  const loadSelectedMeter = async () => {
+    if (!selectedSerialNumber) return;
+
+    try {
+      const response = userIsAuthority && councilArea
+        ? await getCouncilMeters(councilArea)
+        : await getUserMeters();
+
+      const meters = Array.isArray(response?.data) ? response.data : [];
+      const selectedMeter = meters.find((meter) => meter.serialNumber === selectedSerialNumber);
+
+      if (selectedMeter?._id) {
+        setSelectedMeterId(selectedMeter._id);
+      }
+    } catch (error) {
+      console.error("Error loading selected meter for valve control:", error);
+    }
+  };
 
   const fetchData = async () => {
     try {
       const waterData = await getWaterData();
-
-      // If new data differs, animate update
-      setPrevData(data);
       setData(waterData);
       setLoading(false);
-    } catch {
+    } catch (error) {
+      console.error("Error fetching water data:", error);
       setData(null);
       setLoading(false);
     }
   };
 
+  const handleValveToggle = async () => {
+    if (!selectedMeterId) {
+      setValveMessage("Select a meter first from meter selection.");
+      return;
+    }
+
+    const action = valveOpen ? "close" : "open";
+
+    try {
+      setControllingValve(true);
+      setValveMessage("");
+      await controlValve(selectedMeterId, action);
+      setValveOpen((prev) => !prev);
+      setValveMessage(`Valve ${action}ed successfully.`);
+    } catch (error) {
+      console.error("Error controlling valve:", error);
+      setValveMessage(error?.response?.data?.message || `Failed to ${action} valve.`);
+    } finally {
+      setControllingValve(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
+    loadSelectedMeter();
     const interval = setInterval(fetchData, 5000); // refresh every 5s
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-100 to-sky-300 pt-16">
+    <div className="min-h-screen bg-linear-to-b from-sky-100 to-sky-300 pt-16">
       <div className="max-w-5xl mx-auto px-4 py-10">
+        <div className="flex flex-wrap gap-3 justify-end mb-4">
+          <button
+            onClick={() => window.open("/live-meter-app.html", "_blank")}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            Reading History
+          </button>
+
+          <button
+            onClick={handleValveToggle}
+            disabled={controllingValve || !selectedMeterId}
+            className={`px-4 py-2 rounded-lg text-white transition-colors disabled:opacity-50 ${
+              valveOpen ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"
+            }`}
+          >
+            {controllingValve
+              ? "Processing..."
+              : valveOpen
+              ? "Close Valve"
+              : "Open Valve"}
+          </button>
+        </div>
+
+        {valveMessage && (
+          <p className="text-center text-sm font-medium text-sky-900 mb-4">{valveMessage}</p>
+        )}
+
         <h1 className="text-3xl font-bold text-sky-800 text-center mb-10">
           💧 Smart Water Meter Readings
         </h1>

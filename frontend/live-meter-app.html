@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Meter Readings</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Inter, Arial, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+
+      .container {
+        max-width: 980px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin-bottom: 6px;
+        font-size: 1.8rem;
+      }
+
+      .subtitle {
+        margin-top: 0;
+        opacity: 0.85;
+      }
+
+      .latest-wrapper {
+        margin: 20px 0 16px;
+        padding: 18px;
+        border-radius: 14px;
+        background: #1e293b;
+      }
+
+      .latest-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .metric-card {
+        background: #0f172a;
+        border-radius: 10px;
+        padding: 12px;
+      }
+
+      .metric-name {
+        font-size: 0.85rem;
+        opacity: 0.8;
+      }
+
+      .metric-value {
+        margin-top: 6px;
+        font-size: 1.8rem;
+        font-weight: 700;
+      }
+
+      .latest-label {
+        font-size: 0.95rem;
+        opacity: 0.75;
+      }
+
+      .latest-value {
+        font-size: 3rem;
+        font-weight: 700;
+        line-height: 1.1;
+        margin-top: 8px;
+      }
+
+      .chart-card {
+        background: #1e293b;
+        border-radius: 14px;
+        padding: 16px;
+      }
+
+      canvas {
+        width: 100%;
+        max-height: 420px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Realtime Meter Dashboard</h1>
+      <p class="subtitle">Realtime Database → Firestore mirror + live chart</p>
+
+      <div class="latest-wrapper">
+        <div class="latest-label">Latest Readings (from Firestore)</div>
+        <div id="latestMetrics" class="latest-grid"></div>
+      </div>
+
+      <div class="chart-card">
+        <canvas id="readingsChart"></canvas>
+      </div>
+    </div>
+
+    <script type="module">
+      const API_BASE_URL = "http://localhost:5000/api";
+      const POLL_INTERVAL_MS = 5000;
+
+      const latestMetricsElement = document.getElementById("latestMetrics");
+      const chartCtx = document.getElementById("readingsChart").getContext("2d");
+
+      const metricConfig = [
+        { key: "Flow_Rate", label: "Flow Rate", color: "#38bdf8" },
+        { key: "Pressure", label: "Pressure", color: "#f59e0b" },
+        { key: "Total_Consumption", label: "Total Consumption", color: "#22c55e" },
+        { key: "Daily_consumption", label: "Daily Consumption", color: "#a78bfa" },
+        { key: "Monthly_Units", label: "Monthly Units", color: "#ef4444" },
+        { key: "Total_Units", label: "Total Units", color: "#10b981" },
+      ];
+
+      const chart = new Chart(chartCtx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [],
+        },
+        options: {
+          responsive: true,
+          animation: false,
+          scales: {
+            y: {
+              beginAtZero: true,
+            },
+          },
+        },
+      });
+
+      function toNumber(value) {
+        const numericValue = Number(value);
+        return Number.isFinite(numericValue) ? numericValue : null;
+      }
+
+      function normalizeReading(readingObj) {
+        const source = readingObj && typeof readingObj === "object" ? readingObj : { reading: readingObj };
+        return {
+          Flow_Rate: toNumber(source.Flow_Rate ?? source.flowRate),
+          Pressure: toNumber(source.Pressure ?? source.pressure),
+          Total_Consumption: toNumber(source.Total_Consumption ?? source.totalConsumption ?? source.Total_Units),
+          Daily_consumption: toNumber(source.Daily_consumption ?? source.dailyConsumption),
+          Monthly_Units: toNumber(source.Monthly_Units ?? source.monthlyUnits),
+          Total_Units: toNumber(source.Total_Units ?? source.totalUnits),
+        };
+      }
+
+      function extractLabel(readingObj) {
+        if (readingObj?.mirroredAt) {
+          const date = new Date(readingObj.mirroredAt);
+          if (!Number.isNaN(date.getTime())) return date.toLocaleTimeString();
+        }
+        if (readingObj?.Last_Updated) {
+          const date = new Date(readingObj.Last_Updated);
+          if (!Number.isNaN(date.getTime())) {
+            return date.toLocaleTimeString();
+          }
+        }
+        if (readingObj?.timestamp) {
+          const date = new Date(readingObj.timestamp);
+          if (!Number.isNaN(date.getTime())) {
+            return date.toLocaleTimeString();
+          }
+        }
+        return new Date().toLocaleTimeString();
+      }
+
+      function renderLatestMetrics(latestReading) {
+        if (!latestReading) {
+          latestMetricsElement.innerHTML = "<div class=\"metric-card\"><div class=\"metric-name\">No data</div><div class=\"metric-value\">--</div></div>";
+          return;
+        }
+
+        const normalized = normalizeReading(latestReading);
+        latestMetricsElement.innerHTML = metricConfig
+          .map((metric) => {
+            const value = normalized[metric.key];
+            return `<div class="metric-card"><div class="metric-name">${metric.label}</div><div class="metric-value">${value ?? "--"}</div></div>`;
+          })
+          .join("");
+      }
+
+      function updateChartFromFirestore(historyDocs) {
+        const labels = historyDocs.map((item) => extractLabel(item));
+        chart.data.labels = labels;
+
+        chart.data.datasets = metricConfig.map((metric) => ({
+          label: metric.label,
+          data: historyDocs.map((item) => {
+            const normalized = normalizeReading(item);
+            return normalized[metric.key];
+          }),
+          borderColor: metric.color,
+          backgroundColor: `${metric.color}33`,
+          fill: false,
+          tension: 0.25,
+          pointRadius: 2,
+          spanGaps: true,
+        }));
+
+        chart.update();
+      }
+
+      async function fetchMeterHistory() {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          console.error("Missing auth token. Please log in first.");
+          return [];
+        }
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/readings/history?limit=200`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Failed to fetch meter history:", response.status, errorText);
+            return [];
+          }
+
+          const payload = await response.json();
+          return Array.isArray(payload.readings) ? payload.readings : [];
+        } catch (error) {
+          console.error("Error requesting meter history:", error);
+          return [];
+        }
+      }
+
+      async function refreshFromBackend() {
+        const historyDocs = await fetchMeterHistory();
+        updateChartFromFirestore(historyDocs);
+        renderLatestMetrics(historyDocs.length ? historyDocs[historyDocs.length - 1] : null);
+      }
+
+      refreshFromBackend();
+      setInterval(refreshFromBackend, POLL_INTERVAL_MS);
+    </script>
+  </body>
+</html>
