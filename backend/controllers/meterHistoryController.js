@@ -126,6 +126,12 @@ const walkMeterObjects = (node, path = []) => {
 const buildRealtimeFallbackReadings = async (match, limit) => {
   const sourcePaths = ["Meter_Readings", "meterReadings"];
   const rows = [];
+  const requestedSerials =
+    match?.serialNumber && typeof match.serialNumber === "object" && Array.isArray(match.serialNumber.$in)
+      ? match.serialNumber.$in
+      : typeof match?.serialNumber === "string"
+      ? [match.serialNumber]
+      : [];
 
   for (const sourcePath of sourcePaths) {
     const snapshot = await get(ref(db, sourcePath));
@@ -134,12 +140,20 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
     const entries = walkMeterObjects(snapshot.val());
     for (const entry of entries) {
       const payload = entry.payload || {};
-      const serialNumber = payload.serialNumber || payload.SerialNumber || payload.meterId || payload.meterID || entry.keyPath[entry.keyPath.length - 1] || null;
-      const councilArea = payload.councilArea || payload.CouncilArea || entry.keyPath[0] || null;
+      let serialNumber = payload.serialNumber || payload.SerialNumber || payload.meterId || payload.meterID || entry.keyPath[entry.keyPath.length - 1] || null;
+      let councilArea = payload.councilArea || payload.CouncilArea || entry.keyPath[0] || null;
+
+      if ((!serialNumber || serialNumber === "Meter_Readings" || serialNumber === "meterReadings") && requestedSerials.length) {
+        serialNumber = requestedSerials[0];
+      }
+
+      if (!councilArea && match?.councilArea) {
+        councilArea = match.councilArea;
+      }
 
       if (!serialNumber) continue;
-      if (match?.serialNumber) {
-        const expected = Array.isArray(match.serialNumber.$in) ? match.serialNumber.$in : [match.serialNumber];
+      if (requestedSerials.length) {
+        const expected = requestedSerials;
         if (!expected.includes(serialNumber)) continue;
       }
       if (match?.councilArea && councilArea !== match.councilArea) continue;

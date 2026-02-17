@@ -3,7 +3,9 @@ const db = require("../config/firebase");
 const MeterReading = require("../models/MeterReading");
 
 let isStarted = false;
+let periodicSyncTimer = null;
 const lastPersistedSignatures = new Map();
+const PERIODIC_SYNC_MS = 2 * 60 * 1000;
 
 const toNumber = (value) => {
   const parsed = Number(value);
@@ -36,9 +38,14 @@ const isMeterLikeObject = (value) => {
   );
 };
 
+const hasNestedObjectChildren = (value) => {
+  if (!value || typeof value !== "object") return false;
+  return Object.values(value).some((child) => child && typeof child === "object");
+};
+
 const walkMeterObjects = (node, path = []) => {
   if (!node || typeof node !== "object") return [];
-  if (isMeterLikeObject(node)) {
+  if (isMeterLikeObject(node) && !hasNestedObjectChildren(node)) {
     return [{ keyPath: path, payload: node }];
   }
 
@@ -87,7 +94,7 @@ const getSignature = (reading) =>
     Last_Updated: reading.Last_Updated ? reading.Last_Updated.toISOString() : null,
   });
 
-const persistReadings = async (entries, sourcePath) => {
+const persistReadings = async (entries, sourcePath, { forceWrite = false } = {}) => {
   if (!entries.length) return;
 
   const writeOperations = [];
@@ -99,7 +106,7 @@ const persistReadings = async (entries, sourcePath) => {
     const cacheKey = `${normalized.councilArea || "unknown"}__${normalized.serialNumber}`;
     const signature = getSignature(normalized);
 
-    if (lastPersistedSignatures.get(cacheKey) === signature) {
+    if (!forceWrite && lastPersistedSignatures.get(cacheKey) === signature) {
       continue;
     }
 
@@ -112,13 +119,13 @@ const persistReadings = async (entries, sourcePath) => {
   }
 };
 
-const syncTreeToMongo = async (treeValue, sourcePath) => {
+const syncTreeToMongo = async (treeValue, sourcePath, options = {}) => {
   if (!treeValue || typeof treeValue !== "object") return;
   const entries = walkMeterObjects(treeValue);
-  await persistReadings(entries, sourcePath);
+  await persistReadings(entries, sourcePath, options);
 };
 
-const syncCurrentRealtimeToMongo = async () => {
+const syncCurrentRealtimeToMongo = async (options = {}) => {
   const sourceConfigs = [
     { path: "Meter_Readings", sourcePath: "Meter_Readings" },
     { path: "meterReadings", sourcePath: "meterReadings" },
@@ -127,7 +134,7 @@ const syncCurrentRealtimeToMongo = async () => {
   for (const source of sourceConfigs) {
     const snapshot = await get(ref(db, source.path));
     if (!snapshot.exists()) continue;
-    await syncTreeToMongo(snapshot.val(), source.sourcePath);
+    await syncTreeToMongo(snapshot.val(), source.sourcePath, options);
   }
 };
 
@@ -159,7 +166,17 @@ const startRealtimeToMongoSync = () => {
     );
   }
 
-  console.log("Realtime to MongoDB sync listener started✅");
+  syncCurrentRealtimeToMongo({ forceWrite: true }).catch((error) => {
+    console.error("Initial periodic sync failed:", error.message);
+  });
+
+  periodicSyncTimer = setInterval(() => {
+    syncCurrentRealtimeToMongo({ forceWrite: true }).catch((error) => {
+      console.error("Periodic sync failed:", error.message);
+    });
+  }, PERIODIC_SYNC_MS);
+
+  console.log("Realtime to MongoDB sync listener started✅ (periodic snapshot every 2 mins)");
 };
 
 module.exports = {
