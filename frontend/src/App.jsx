@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import HouseholdsPage from './pages/HouseholdsPage';
 import LoginPage from './pages/LoginPage';
 import WaterMeterReadings from './pages/WaterMeterReadings';
+import ReadingHistory from './pages/ReadingHistory';
 import MeterSelection from './pages/MeterSelection';
 import AreasPage from './pages/AreasPage';
 import UsersPage from './pages/UsersPage';
@@ -61,6 +62,7 @@ function App() {
   }>
     <Route path="/meters" element={<MeterSelection />} />
     <Route path="/water-meter-readings" element={<WaterMeterReadings />} />
+    <Route path="/reading-history" element={<ReadingHistory />} />
   </Route>
 </Routes>
   );

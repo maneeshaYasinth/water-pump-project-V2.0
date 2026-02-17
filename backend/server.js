@@ -3,11 +3,9 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const cookieParser = require("cookie-parser");
 const connectDB = require("./config/db");
+const { startRealtimeToMongoSync } = require("./services/realtimeToMongoSync");
 
 dotenv.config();
-
-// Connect Database
-connectDB();
 
 const app = express();
 
@@ -26,6 +24,13 @@ app.use("/api/water", waterRoutes);
 const readingRoutes = require("./routes/meterReadingRoutes");
 app.use("/api/readings", readingRoutes);
 
-// Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+
+const startServer = async () => {
+	await connectDB();
+	startRealtimeToMongoSync();
+
+	app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+};
+
+startServer();

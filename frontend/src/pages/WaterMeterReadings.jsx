@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { controlValve, getCouncilMeters, getWaterData } from "../services/waterService";
 import { getUserCouncilArea, isAuthority } from "../services/authService";
 import { getUserMeters } from "../services/meterService";
@@ -11,6 +12,7 @@ const WaterMeterReadings = () => {
   const [valveOpen, setValveOpen] = useState(false);
   const [controllingValve, setControllingValve] = useState(false);
   const [valveMessage, setValveMessage] = useState("");
+  const navigate = useNavigate();
 
   const userIsAuthority = isAuthority();
   const councilArea = getUserCouncilArea();
@@ -82,7 +84,7 @@ const WaterMeterReadings = () => {
       <div className="max-w-5xl mx-auto px-4 py-10">
         <div className="flex flex-wrap gap-3 justify-end mb-4">
           <button
-            onClick={() => window.open("/live-meter-app.html", "_blank")}
+            onClick={() => navigate("/reading-history")}
             className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
           >
             Reading History
