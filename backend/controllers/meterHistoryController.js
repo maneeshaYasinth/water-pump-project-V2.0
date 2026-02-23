@@ -42,17 +42,25 @@ const buildBaseMatch = (accessContext) => {
     return { serialNumber: { $in: accessContext.serialNumbers } };
   }
 
-  if (accessContext.role === "admin" || accessContext.role === "authority") {
+  if (accessContext.role === "authority") {
     return accessContext.councilArea ? { councilArea: accessContext.councilArea } : { _id: null };
+  }
+
+  if (accessContext.role === "admin") {
+    return accessContext.councilArea ? { councilArea: accessContext.councilArea } : {};
   }
 
   return { _id: null };
 };
 
-const applyOptionalFilters = (match, req) => {
-  const serialNumber = req.query.serialNumber;
+const applyOptionalFilters = (match, req, accessContext) => {
+  const serialNumber = req.query.serialNumber?.trim();
 
   if (serialNumber) {
+    if (accessContext.role === "user" && !accessContext.serialNumbers.includes(serialNumber)) {
+      return { _id: null };
+    }
+
     match.serialNumber = serialNumber;
   }
 
@@ -124,7 +132,7 @@ const walkMeterObjects = (node, path = []) => {
 };
 
 const buildRealtimeFallbackReadings = async (match, limit) => {
-  const sourcePaths = ["Meter_Readings", "meterReadings"];
+  const sourcePaths = ["Meter_Readings", "meterReadings", "meters"];
   const rows = [];
   const requestedSerials =
     match?.serialNumber && typeof match.serialNumber === "object" && Array.isArray(match.serialNumber.$in)
@@ -133,6 +141,41 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
       ? [match.serialNumber]
       : [];
 
+  // Try reading root-level Meter_Readings first
+  for (const rootPath of ["Meter_Readings", "meterReadings"]) {
+    const rootSnapshot = await get(ref(db, rootPath));
+    if (!rootSnapshot.exists()) continue;
+    
+    const rootData = rootSnapshot.val();
+    
+    // Check if this is a root-level reading (has Flow_Rate, Pressure, etc. directly)
+    if (rootData && typeof rootData === "object" && 
+        (rootData.Flow_Rate !== undefined || rootData.Pressure !== undefined || 
+         rootData.Total_Units !== undefined || rootData.Daily_consumption !== undefined)) {
+      
+      console.log(`[history-fallback] Found root-level readings at ${rootPath}:`, rootData);
+      
+      // For each requested serial, create a reading from root data
+      const serialsToProcess = requestedSerials.length ? requestedSerials : ["unknown"];
+      
+      for (const serial of serialsToProcess) {
+        rows.push({
+          serialNumber: serial,
+          councilArea: match?.councilArea || null,
+          Daily_consumption: toNumber(rootData.Daily_consumption ?? rootData.dailyConsumption),
+          Flow_Rate: toNumber(rootData.Flow_Rate ?? rootData.flowRate),
+          Monthly_Units: toNumber(rootData.Monthly_Units ?? rootData.monthlyUnits),
+          Pressure: toNumber(rootData.Pressure ?? rootData.pressure),
+          Total_Units: toNumber(rootData.Total_Units ?? rootData.totalUnits ?? rootData.Total_Consumption ?? rootData.totalConsumption),
+          Last_Updated: rootData.Last_Updated || rootData.lastUpdated || new Date().toISOString(),
+          createdAt: rootData.Last_Updated || rootData.lastUpdated || new Date().toISOString(),
+          source: `firebase-root-${rootPath}`,
+        });
+      }
+    }
+  }
+
+  // Tree-walk existing paths
   for (const sourcePath of sourcePaths) {
     const snapshot = await get(ref(db, sourcePath));
     if (!snapshot.exists()) continue;
@@ -140,8 +183,16 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
     const entries = walkMeterObjects(snapshot.val());
     for (const entry of entries) {
       const payload = entry.payload || {};
-      let serialNumber = payload.serialNumber || payload.SerialNumber || payload.meterId || payload.meterID || entry.keyPath[entry.keyPath.length - 1] || null;
-      let councilArea = payload.councilArea || payload.CouncilArea || entry.keyPath[0] || null;
+      let serialNumber =
+        payload.serialNumber ||
+        payload.SerialNumber ||
+        payload.meterId ||
+        payload.meterID ||
+        payload.meterNo ||
+        payload.deviceId ||
+        (sourcePath === "meters" ? entry.keyPath[0] : entry.keyPath[entry.keyPath.length - 1]) ||
+        null;
+      let councilArea = payload.councilArea || payload.CouncilArea || (sourcePath === "meters" ? null : entry.keyPath[0]) || null;
 
       if ((!serialNumber || serialNumber === "Meter_Readings" || serialNumber === "meterReadings") && requestedSerials.length) {
         serialNumber = requestedSerials[0];
@@ -180,24 +231,40 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
 
 const getRealtimePayloadBySerial = async (serialNumber, councilAreaHint = null) => {
   const directPaths = [
+    `meters/${serialNumber}/readings/current`,
     councilAreaHint ? `Meter_Readings/${councilAreaHint}/${serialNumber}` : null,
     councilAreaHint ? `meterReadings/${councilAreaHint}/${serialNumber}` : null,
     `Meter_Readings/${serialNumber}`,
     `meterReadings/${serialNumber}`,
+    `Meter_Readings`,
+    `meterReadings`,
   ].filter(Boolean);
 
   for (const path of directPaths) {
     const directSnapshot = await get(ref(db, path));
     if (directSnapshot.exists()) {
       const parts = path.split("/");
+      const data = directSnapshot.val();
+      
+      // Check if this is root-level reading (has metrics directly)
+      if ((path === "Meter_Readings" || path === "meterReadings") && 
+          data && typeof data === "object" &&
+          (data.Flow_Rate !== undefined || data.Pressure !== undefined || data.Total_Units !== undefined)) {
+        console.log(`[history-payload] Found root-level reading at ${path}:`, data);
+        return {
+          payload: data,
+          councilArea: councilAreaHint,
+        };
+      }
+      
       return {
-        payload: directSnapshot.val() || {},
+        payload: data || {},
         councilArea: parts.length >= 3 ? parts[1] : councilAreaHint,
       };
     }
   }
 
-  const treePaths = ["Meter_Readings", "meterReadings"];
+  const treePaths = ["meters", "Meter_Readings", "meterReadings"];
   for (const treePath of treePaths) {
     const treeSnapshot = await get(ref(db, treePath));
     if (!treeSnapshot.exists()) continue;
@@ -206,7 +273,10 @@ const getRealtimePayloadBySerial = async (serialNumber, councilAreaHint = null) 
     if (found?.payload) {
       return {
         payload: found.payload,
-        councilArea: found.keyPath?.length > 1 ? found.keyPath[0] : councilAreaHint,
+        councilArea:
+          found.payload?.councilArea ||
+          found.payload?.CouncilArea ||
+          (treePath === "meters" ? councilAreaHint : found.keyPath?.length > 1 ? found.keyPath[0] : councilAreaHint),
       };
     }
   }
@@ -222,7 +292,7 @@ exports.getLatestReadings = async (req, res) => {
       return res.json({ count: 0, readings: [] });
     }
 
-    const match = applyOptionalFilters(buildBaseMatch(accessContext), req);
+    const match = applyOptionalFilters(buildBaseMatch(accessContext), req, accessContext);
 
     const readings = await MeterReading.aggregate([
       { $match: match },
@@ -250,24 +320,26 @@ exports.getMeterHistory = async (req, res) => {
       return res.json({ count: 0, readings: [] });
     }
 
-    const match = applyOptionalFilters(buildBaseMatch(accessContext), req);
+    const match = applyOptionalFilters(buildBaseMatch(accessContext), req, accessContext);
     const queryLimit = parseLimit(req.query.limit);
 
+    // Always read from MongoDB only - this is the historical data source
     let readings = await MeterReading.find(match)
       .sort({ createdAt: -1 })
       .limit(queryLimit)
       .lean();
 
+    // If no data, trigger a sync and retry once
     if (!readings.length) {
+      console.log("[history] No MongoDB data found, triggering sync from Firebase...");
       await syncCurrentRealtimeToMongo();
+      
       readings = await MeterReading.find(match)
         .sort({ createdAt: -1 })
         .limit(queryLimit)
         .lean();
-
-      if (!readings.length) {
-        readings = await buildRealtimeFallbackReadings(match, queryLimit);
-      }
+      
+      console.log(`[history] After sync: ${readings.length} readings found in MongoDB`);
     }
 
     return res.json({

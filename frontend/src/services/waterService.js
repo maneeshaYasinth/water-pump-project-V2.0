@@ -1,7 +1,10 @@
 import WATER_API from "./waterApi";
-export const getWaterData = async () => {
+export const getWaterData = async (serialNumber) => {
   try {
-    const res = await WATER_API.get("/readings");
+    const params = {};
+    if (serialNumber) params.serialNumber = serialNumber;
+
+    const res = await WATER_API.get("/readings", { params });
     return res.data;
   } catch (err) {
     console.error("Error fetching water data:", err);

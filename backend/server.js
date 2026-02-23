@@ -3,7 +3,7 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 const cookieParser = require("cookie-parser");
 const connectDB = require("./config/db");
-const { startRealtimeToMongoSync } = require("./services/realtimeToMongoSync");
+const { startRealtimeToMongoSync, ensureCanonicalRealtimeStructure } = require("./services/realtimeToMongoSync");
 
 dotenv.config();
 
@@ -28,6 +28,7 @@ const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
 	await connectDB();
+	await ensureCanonicalRealtimeStructure();
 	startRealtimeToMongoSync();
 
 	app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

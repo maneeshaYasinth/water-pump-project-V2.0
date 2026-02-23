@@ -30,21 +30,30 @@ const ReadingHistory = () => {
   const navigate = useNavigate();
   const selectedSerialNumber = localStorage.getItem("selectedMeter");
 
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [historyRows, setHistoryRows] = useState([]);
   const [usingFallbackData, setUsingFallbackData] = useState(false);
 
   useEffect(() => {
-    const fetchHistory = async () => {
+    let isSubscribed = true;
+
+    const fetchHistory = async (isInitial = false) => {
       try {
-        setLoading(true);
+        if (isInitial) {
+          setInitialLoading(true);
+        } else {
+          setRefreshing(true);
+        }
         setError("");
 
         const payload = await getReadingHistory({
           serialNumber: selectedSerialNumber || undefined,
           limit: 200,
         });
+
+        if (!isSubscribed) return;
 
         let rows = Array.isArray(payload?.readings) ? payload.readings : [];
 
@@ -58,25 +67,45 @@ const ReadingHistory = () => {
 
         const normalized = rows
           .map((item) => ({
-            timestamp: item.Last_Updated || item.createdAt,
-            flowRate: toNumber(item.Flow_Rate),
-            pressure: toNumber(item.Pressure),
-            totalUnits: toNumber(item.Total_Units ?? item.Total_Consumption),
-            dailyConsumption: toNumber(item.Daily_consumption),
-            monthlyUnits: toNumber(item.Monthly_Units),
+            timestamp: item.createdAt || item.Last_Updated || item.lastUpdated || item.updatedAt,
+            flowRate: toNumber(item.Flow_Rate ?? item.flowRate ?? item.FlowRate),
+            pressure: toNumber(item.Pressure ?? item.pressure),
+            totalUnits: toNumber(
+              item.Total_Units ?? item.totalUnits ?? item.Total_Consumption ?? item.totalConsumption
+            ),
+            dailyConsumption: toNumber(
+              item.Daily_consumption ?? item.Daily_Consumption ?? item.dailyConsumption
+            ),
+            monthlyUnits: toNumber(item.Monthly_Units ?? item.monthlyUnits),
           }))
           .filter((item) => !!item.timestamp)
           .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-        setHistoryRows(normalized);
+        if (isSubscribed) {
+          setHistoryRows(normalized);
+        }
       } catch (err) {
-        setError(err?.response?.data?.message || "Failed to load reading history");
+        if (isSubscribed) {
+          setError(err?.response?.data?.message || "Failed to load reading history");
+        }
       } finally {
-        setLoading(false);
+        if (isSubscribed) {
+          if (isInitial) {
+            setInitialLoading(false);
+          } else {
+            setRefreshing(false);
+          }
+        }
       }
     };
 
-    fetchHistory();
+    fetchHistory(true);
+
+    const interval = setInterval(() => fetchHistory(false), 10000);
+    return () => {
+      isSubscribed = false;
+      clearInterval(interval);
+    };
   }, [selectedSerialNumber]);
 
   const latest = historyRows.length ? historyRows[historyRows.length - 1] : null;
@@ -103,7 +132,18 @@ const ReadingHistory = () => {
     <div className="min-h-screen bg-linear-to-b from-sky-100 to-sky-300 pt-16">
       <div className="max-w-6xl mx-auto px-4 py-10">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-sky-800">Reading History</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-sky-800">Reading History</h1>
+            {refreshing && (
+              <div className="flex items-center gap-2 text-sm text-sky-600">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span>Updating...</span>
+              </div>
+            )}
+          </div>
           <button
             onClick={() => navigate("/water-meter-readings")}
             className="bg-sky-600 text-white px-4 py-2 rounded-lg hover:bg-sky-700 transition-colors"
@@ -122,7 +162,7 @@ const ReadingHistory = () => {
           </p>
         )}
 
-        {loading ? (
+        {initialLoading ? (
           <Loader />
         ) : error ? (
           <p className="text-red-600 text-center">{error}</p>
@@ -148,8 +188,24 @@ const ReadingHistory = () => {
                   <YAxis />
                   <Tooltip labelFormatter={(value) => formatTime(value)} />
                   <Legend />
-                  <Line type="monotone" dataKey="flowRate" name="Flow Rate" stroke="#0284c7" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="pressure" name="Pressure" stroke="#f97316" strokeWidth={2} dot={false} />
+                  <Line
+                    type="monotone"
+                    dataKey="flowRate"
+                    name="Flow Rate"
+                    stroke="#0284c7"
+                    strokeWidth={2}
+                    dot={historyRows.length <= 1}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="pressure"
+                    name="Pressure"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    dot={historyRows.length <= 1}
+                    isAnimationActive={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -163,9 +219,9 @@ const ReadingHistory = () => {
                   <YAxis />
                   <Tooltip labelFormatter={(value) => formatTime(value)} />
                   <Legend />
-                  <Bar dataKey="dailyConsumption" name="Daily Consumption" fill="#16a34a" />
-                  <Bar dataKey="monthlyUnits" name="Monthly Units" fill="#7c3aed" />
-                  <Bar dataKey="totalUnits" name="Total Units" fill="#0ea5e9" />
+                  <Bar dataKey="dailyConsumption" name="Daily Consumption" fill="#16a34a" isAnimationActive={false} />
+                  <Bar dataKey="monthlyUnits" name="Monthly Units" fill="#7c3aed" isAnimationActive={false} />
+                  <Bar dataKey="totalUnits" name="Total Units" fill="#0ea5e9" isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

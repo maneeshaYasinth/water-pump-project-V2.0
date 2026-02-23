@@ -40,7 +40,7 @@ const WaterMeterReadings = () => {
 
   const fetchData = async () => {
     try {
-      const waterData = await getWaterData();
+      const waterData = await getWaterData(selectedSerialNumber || undefined);
       setData(waterData);
       setLoading(false);
     } catch (error) {

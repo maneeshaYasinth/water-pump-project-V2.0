@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { authenticate, isAdminOrAuthority } = require("../middleware/authMiddleware");
 const WaterMeter = require("../models/Meter");
-const { ref, set, get } = require("firebase/database");
+const { ref, set, get, update } = require("firebase/database");
 const db = require("../config/firebase");
 
 // ✅ Create a new meter
@@ -23,13 +23,45 @@ router.post("/", authenticate, async (req, res) => {
       status: 'active'
     });
     
-    // Initialize meter readings in Firebase
-    await set(ref(db, `Meter_Readings/${councilArea}/${serialNumber}`), {
+    const nowIso = new Date().toISOString();
+    const initialReading = {
+      serialNumber,
+      councilArea,
       Flow_Rate: 0,
       Pressure: 0,
       Total_Consumption: 0,
-      Last_Updated: new Date().toISOString(),
+      Total_Units: 0,
+      Daily_consumption: 0,
+      Monthly_Units: 0,
+      Last_Updated: nowIso,
       isActive: true
+    };
+
+    // Canonical structure + legacy compatibility
+    await update(ref(db), {
+      [`meters/${serialNumber}/meta`]: {
+        serialNumber,
+        councilArea,
+        name,
+        meterId: newMeter._id.toString(),
+        userId,
+        isActive: true,
+        createdAt: nowIso,
+      },
+      [`meters/${serialNumber}/readings/current`]: initialReading,
+      [`meters/${serialNumber}/valve/status`]: {
+        status: "open",
+        updatedBy: userId,
+        lastUpdated: nowIso,
+      },
+      [`Meter_Readings/${councilArea}/${serialNumber}`]: initialReading,
+      [`meterReadings/${councilArea}/${serialNumber}`]: initialReading,
+      [`Valve_Status/${newMeter._id}`]: {
+        status: "open",
+        updatedBy: userId,
+        serialNumber,
+        lastUpdated: nowIso,
+      },
     });
 
     res.status(201).json(newMeter);
@@ -102,11 +134,28 @@ router.post("/valve-control/:meterId", authenticate, async (req, res) => {
       return res.status(403).json({ message: "Access denied for this council area" });
     }
 
-    // Update valve state in Firebase
-    await set(ref(db, `Valve_Status/${meterId}`), {
-      status: action,
-      lastUpdated: new Date().toISOString(),
-      updatedBy: req.user.userId
+    const nowIso = new Date().toISOString();
+
+    // Update valve state in canonical + legacy paths
+    await update(ref(db), {
+      [`meters/${meter.serialNumber}/valve/status`]: {
+        status: action,
+        updatedBy: req.user.userId,
+        lastUpdated: nowIso,
+        serialNumber: meter.serialNumber,
+      },
+      [`Valve_Status/${meterId}`]: {
+        status: action,
+        updatedBy: req.user.userId,
+        serialNumber: meter.serialNumber,
+        lastUpdated: nowIso,
+      },
+      [`Valve_Status/${meter.serialNumber}`]: {
+        status: action,
+        updatedBy: req.user.userId,
+        serialNumber: meter.serialNumber,
+        lastUpdated: nowIso,
+      },
     });
 
     res.json({ message: `Valve successfully ${action}ed` });
