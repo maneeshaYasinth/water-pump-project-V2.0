@@ -3,6 +3,7 @@ import { ref, onValue } from "firebase/database";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import { isAdminOrAuthority, getUserCouncilArea } from "../services/authService";
+import { getConsumptionReport } from "../services/waterService";
 import {
   AreaChart,
   Area,
@@ -23,6 +24,7 @@ import {
   XCircle,
   Power,
   Check,
+  Download,
 } from "lucide-react";
 
 // ────────────────────────────────
@@ -141,6 +143,9 @@ export default function Dashboard() {
   const [councilMeters, setCouncilMeters] = useState([]);
   const [areasData, setAreasData] = useState([]);
   const [alertsData, setAlertsData] = useState([]);
+  const [consumptionReport, setConsumptionReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   // ─── Mock data for visuals ────────────────
   const mockStats = {
@@ -303,6 +308,54 @@ export default function Dashboard() {
 
     return () => unsubscribe();
   }, [userIsAdmin, councilArea]);
+
+  useEffect(() => {
+    if (userIsAdmin) return;
+
+    const fetchConsumptionReport = async () => {
+      try {
+        setReportLoading(true);
+        setReportError("");
+        const report = await getConsumptionReport();
+        setConsumptionReport(report);
+      } catch (error) {
+        setReportError(error?.response?.data?.message || "Failed to load consumption report");
+      } finally {
+        setReportLoading(false);
+      }
+    };
+
+    fetchConsumptionReport();
+  }, [userIsAdmin]);
+
+  const handleDownloadConsumptionReport = () => {
+    if (!consumptionReport?.meters?.length) return;
+
+    const rows = [
+      ["Serial Number", "Meter Name", "Last 7 Days", "Last 30 Days", "Unit"],
+      ...consumptionReport.meters.map((meter) => [
+        meter.serialNumber,
+        meter.meterName || "",
+        meter.last7Days ?? 0,
+        meter.last30Days ?? 0,
+        "Liters",
+      ]),
+    ];
+
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `consumption-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   // ─── Loading Spinner ────────────
   if (loading) {
@@ -569,6 +622,65 @@ export default function Dashboard() {
 
         {/* Right Column */}
         <div className="lg:col-span-1">
+          <div className="bg-white p-6 rounded-lg shadow mb-6">
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-xl font-semibold text-gray-800">Consumption Report</h3>
+              <button
+                onClick={handleDownloadConsumptionReport}
+                disabled={!consumptionReport?.meters?.length || reportLoading}
+                className="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download CSV
+              </button>
+            </div>
+
+            {reportLoading && <p className="text-sm text-gray-500">Loading report...</p>}
+            {!reportLoading && reportError && <p className="text-sm text-red-600">{reportError}</p>}
+            {!reportLoading && !reportError && (
+              <>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <p className="text-xs text-blue-600 font-medium">Last 7 Days</p>
+                    <p className="text-lg font-semibold text-blue-900">{consumptionReport?.summary?.last7Days ?? 0} L</p>
+                  </div>
+                  <div className="bg-emerald-50 rounded-lg p-3">
+                    <p className="text-xs text-emerald-600 font-medium">Last 30 Days</p>
+                    <p className="text-lg font-semibold text-emerald-900">{consumptionReport?.summary?.last30Days ?? 0} L</p>
+                  </div>
+                </div>
+
+                <div className="max-h-44 overflow-y-auto border rounded-lg">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-gray-600">Meter</th>
+                        <th className="text-right px-3 py-2 text-gray-600">7d (L)</th>
+                        <th className="text-right px-3 py-2 text-gray-600">30d (L)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(consumptionReport?.meters || []).map((meter) => (
+                        <tr key={meter.serialNumber} className="border-b last:border-b-0">
+                          <td className="px-3 py-2 text-gray-700">{meter.meterName || meter.serialNumber}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{meter.last7Days ?? 0}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{meter.last30Days ?? 0}</td>
+                        </tr>
+                      ))}
+                      {!consumptionReport?.meters?.length && (
+                        <tr>
+                          <td colSpan={3} className="px-3 py-3 text-center text-gray-500">
+                            No MongoDB readings available for report.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+
           <div className="bg-white p-6 rounded-lg shadow">
             <h3 className="text-xl font-semibold mb-4 flex items-center">
               <AlertTriangle className="w-6 h-6 mr-2 text-red-500" />

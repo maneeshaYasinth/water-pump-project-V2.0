@@ -12,15 +12,30 @@ export const getWaterData = async (serialNumber) => {
   }
 };
 
-export const getReadingHistory = async ({ serialNumber, limit = 200 } = {}) => {
+export const getReadingHistory = async ({ serialNumber, limit = 200, startDate, endDate } = {}) => {
   try {
     const params = { limit };
     if (serialNumber) params.serialNumber = serialNumber;
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
 
     const res = await WATER_API.get("/readings/history", { params });
     return res.data;
   } catch (err) {
     console.error("Error fetching reading history:", err);
+    throw err;
+  }
+};
+
+export const getConsumptionReport = async ({ serialNumber } = {}) => {
+  try {
+    const params = {};
+    if (serialNumber) params.serialNumber = serialNumber;
+
+    const res = await WATER_API.get("/readings/report", { params });
+    return res.data;
+  } catch (err) {
+    console.error("Error fetching consumption report:", err);
     throw err;
   }
 };

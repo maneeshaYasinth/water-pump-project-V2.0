@@ -9,8 +9,19 @@ const DEFAULT_LIMIT = 200;
 const parseLimit = (rawValue) => {
   const parsed = Number(rawValue);
   if (!Number.isFinite(parsed)) return DEFAULT_LIMIT;
-  return Math.min(Math.max(parsed, 1), 500);
+  return Math.min(Math.max(parsed, 1), 5000);
 };
+
+const parseDateQuery = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const REPORT_PERIODS = [
+  { key: "last7Days", label: "Last 7 Days", days: 7 },
+  { key: "last30Days", label: "Last 30 Days", days: 30 },
+];
 
 const getAccessContext = async (req) => {
   const role = req.user?.role;
@@ -70,6 +81,46 @@ const applyOptionalFilters = (match, req, accessContext) => {
 const toNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const toDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getTotalReadingValue = (reading) => {
+  const value = Number(reading?.Total_Units ?? reading?.Total_Consumption);
+  return Number.isFinite(value) ? value : null;
+};
+
+const getDailyReadingValue = (reading) => {
+  const value = Number(reading?.Daily_consumption);
+  return Number.isFinite(value) ? value : null;
+};
+
+const calculatePeriodConsumption = (rows) => {
+  if (!rows.length) return 0;
+
+  const totals = rows
+    .map(getTotalReadingValue)
+    .filter((value) => Number.isFinite(value));
+
+  if (totals.length >= 2) {
+    const min = Math.min(...totals);
+    const max = Math.max(...totals);
+    return Math.max(0, max - min);
+  }
+
+  const dailyValues = rows
+    .map(getDailyReadingValue)
+    .filter((value) => Number.isFinite(value));
+
+  if (dailyValues.length) {
+    return dailyValues.reduce((sum, value) => sum + value, 0);
+  }
+
+  return 0;
 };
 
 const findSerialInTree = (node, serialNumber, trail = []) => {
@@ -334,9 +385,20 @@ exports.getMeterHistory = async (req, res) => {
 
     const match = applyOptionalFilters(buildBaseMatch(accessContext), req, accessContext);
     const queryLimit = parseLimit(req.query.limit);
+    const startDate = parseDateQuery(req.query.startDate);
+    const endDate = parseDateQuery(req.query.endDate);
+
+    const dateMatch = {};
+    if (startDate) dateMatch.$gte = startDate;
+    if (endDate) dateMatch.$lte = endDate;
+
+    const finalMatch = {
+      ...match,
+      ...(Object.keys(dateMatch).length ? { createdAt: dateMatch } : {}),
+    };
 
     // Always read from MongoDB only - this is the historical data source
-    let readings = await MeterReading.find(match)
+    let readings = await MeterReading.find(finalMatch)
       .sort({ createdAt: -1 })
       .limit(queryLimit)
       .lean();
@@ -346,7 +408,7 @@ exports.getMeterHistory = async (req, res) => {
       console.log("[history] No MongoDB data found, triggering sync from Firebase...");
       await syncCurrentRealtimeToMongo();
       
-      readings = await MeterReading.find(match)
+      readings = await MeterReading.find(finalMatch)
         .sort({ createdAt: -1 })
         .limit(queryLimit)
         .lean();
@@ -462,5 +524,95 @@ exports.getRealtimeReading = async (req, res) => {
   } catch (error) {
     console.error("Error fetching realtime meter reading:", error);
     return res.status(500).json({ message: "Failed to fetch realtime meter reading" });
+  }
+};
+
+exports.getConsumptionReport = async (req, res) => {
+  try {
+    const accessContext = await getAccessContext(req);
+
+    if (accessContext.role === "user" && !accessContext.serialNumbers.length) {
+      return res.json({
+        generatedAt: new Date().toISOString(),
+        periods: REPORT_PERIODS,
+        summary: {
+          totalMeters: 0,
+          last7Days: 0,
+          last30Days: 0,
+        },
+        meters: [],
+      });
+    }
+
+    const match = applyOptionalFilters(buildBaseMatch(accessContext), req, accessContext);
+    const now = new Date();
+    const maxDays = Math.max(...REPORT_PERIODS.map((period) => period.days));
+    const earliestDate = new Date(now.getTime() - maxDays * 24 * 60 * 60 * 1000);
+
+    const readings = await MeterReading.find({
+      ...match,
+      createdAt: { $gte: earliestDate },
+    })
+      .sort({ serialNumber: 1, createdAt: 1 })
+      .lean();
+
+    const serials = [...new Set(readings.map((reading) => reading.serialNumber).filter(Boolean))];
+    const meterDocs = serials.length
+      ? await Meter.find({ serialNumber: { $in: serials } }).select("serialNumber name").lean()
+      : [];
+    const meterNameBySerial = meterDocs.reduce((acc, meter) => {
+      acc[meter.serialNumber] = meter.name;
+      return acc;
+    }, {});
+
+    const groupedBySerial = readings.reduce((acc, reading) => {
+      const serial = reading.serialNumber;
+      if (!serial) return acc;
+      if (!acc[serial]) acc[serial] = [];
+      acc[serial].push(reading);
+      return acc;
+    }, {});
+
+    const meters = Object.entries(groupedBySerial).map(([serialNumber, rows]) => {
+      const periodValues = REPORT_PERIODS.reduce((acc, period) => {
+        const startDate = new Date(now.getTime() - period.days * 24 * 60 * 60 * 1000);
+        const periodRows = rows.filter((row) => {
+          const rowDate = toDate(row.createdAt || row.Last_Updated);
+          return rowDate && rowDate >= startDate;
+        });
+
+        acc[period.key] = Number(calculatePeriodConsumption(periodRows).toFixed(2));
+        return acc;
+      }, {});
+
+      const latest = rows[rows.length - 1] || {};
+
+      return {
+        serialNumber,
+        meterName: meterNameBySerial[serialNumber] || null,
+        councilArea: latest.councilArea || null,
+        lastUpdated: latest.Last_Updated || latest.createdAt || null,
+        ...periodValues,
+      };
+    });
+
+    const summary = meters.reduce(
+      (acc, meter) => ({
+        totalMeters: acc.totalMeters + 1,
+        last7Days: Number((acc.last7Days + (meter.last7Days || 0)).toFixed(2)),
+        last30Days: Number((acc.last30Days + (meter.last30Days || 0)).toFixed(2)),
+      }),
+      { totalMeters: 0, last7Days: 0, last30Days: 0 }
+    );
+
+    return res.json({
+      generatedAt: now.toISOString(),
+      periods: REPORT_PERIODS,
+      summary,
+      meters,
+    });
+  } catch (error) {
+    console.error("Error generating consumption report:", error);
+    return res.status(500).json({ message: "Failed to generate consumption report" });
   }
 };
