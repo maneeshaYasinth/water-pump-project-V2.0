@@ -92,12 +92,14 @@ const findSerialInTree = (node, serialNumber, trail = []) => {
 const formatReading = (payload, meter) => ({
   serialNumber: meter.serialNumber,
   councilArea: meter.councilArea,
-  Daily_consumption: toNumber(payload?.Daily_consumption),
-  Flow_Rate: toNumber(payload?.Flow_Rate),
+  Daily_consumption: toNumber(payload?.Daily_consumption ?? payload?.dailyConsumption ?? payload?.Daily_Liters ?? payload?.dailyLiters),
+  Flow_Rate: toNumber(payload?.Flow_Rate ?? payload?.flowRate),
   Monthly_Units: toNumber(payload?.Monthly_Units),
-  Pressure: toNumber(payload?.Pressure),
-  Total_Units: toNumber(payload?.Total_Units ?? payload?.Total_Consumption),
-  Last_Updated: payload?.Last_Updated || new Date().toISOString(),
+  Pressure: toNumber(payload?.Pressure ?? payload?.pressure),
+  Total_Units: toNumber(
+    payload?.Total_M3 ?? payload?.totalM3 ?? payload?.Total_Units ?? payload?.totalUnits ?? payload?.Total_Consumption ?? payload?.totalConsumption
+  ),
+  Last_Updated: payload?.Last_Updated || payload?.lastUpdated || payload?.Timestamp || payload?.timestamp || payload?.ts || new Date().toISOString(),
 });
 
 const isMeterLikeObject = (value) => {
@@ -111,10 +113,15 @@ const isMeterLikeObject = (value) => {
     "totalConsumption" in value ||
     "Daily_consumption" in value ||
     "dailyConsumption" in value ||
+    "Daily_Liters" in value ||
+    "dailyLiters" in value ||
     "Monthly_Units" in value ||
     "monthlyUnits" in value ||
     "Total_Units" in value ||
-    "totalUnits" in value
+    "totalUnits" in value ||
+    "Total_M3" in value ||
+    "totalM3" in value ||
+    "Timestamp" in value
   );
 };
 
@@ -151,7 +158,8 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
     // Check if this is a root-level reading (has Flow_Rate, Pressure, etc. directly)
     if (rootData && typeof rootData === "object" && 
         (rootData.Flow_Rate !== undefined || rootData.Pressure !== undefined || 
-         rootData.Total_Units !== undefined || rootData.Daily_consumption !== undefined)) {
+       rootData.Total_Units !== undefined || rootData.Total_M3 !== undefined ||
+       rootData.Daily_consumption !== undefined || rootData.Daily_Liters !== undefined)) {
       
       console.log(`[history-fallback] Found root-level readings at ${rootPath}:`, rootData);
       
@@ -162,13 +170,15 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
         rows.push({
           serialNumber: serial,
           councilArea: match?.councilArea || null,
-          Daily_consumption: toNumber(rootData.Daily_consumption ?? rootData.dailyConsumption),
+          Daily_consumption: toNumber(rootData.Daily_consumption ?? rootData.dailyConsumption ?? rootData.Daily_Liters ?? rootData.dailyLiters),
           Flow_Rate: toNumber(rootData.Flow_Rate ?? rootData.flowRate),
           Monthly_Units: toNumber(rootData.Monthly_Units ?? rootData.monthlyUnits),
           Pressure: toNumber(rootData.Pressure ?? rootData.pressure),
-          Total_Units: toNumber(rootData.Total_Units ?? rootData.totalUnits ?? rootData.Total_Consumption ?? rootData.totalConsumption),
-          Last_Updated: rootData.Last_Updated || rootData.lastUpdated || new Date().toISOString(),
-          createdAt: rootData.Last_Updated || rootData.lastUpdated || new Date().toISOString(),
+          Total_Units: toNumber(
+            rootData.Total_M3 ?? rootData.totalM3 ?? rootData.Total_Units ?? rootData.totalUnits ?? rootData.Total_Consumption ?? rootData.totalConsumption
+          ),
+          Last_Updated: rootData.Last_Updated || rootData.lastUpdated || rootData.Timestamp || rootData.timestamp || rootData.ts || new Date().toISOString(),
+          createdAt: rootData.Last_Updated || rootData.lastUpdated || rootData.Timestamp || rootData.timestamp || rootData.ts || new Date().toISOString(),
           source: `firebase-root-${rootPath}`,
         });
       }
@@ -212,13 +222,15 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
       rows.push({
         serialNumber,
         councilArea,
-        Daily_consumption: toNumber(payload.Daily_consumption ?? payload.dailyConsumption),
+        Daily_consumption: toNumber(payload.Daily_consumption ?? payload.dailyConsumption ?? payload.Daily_Liters ?? payload.dailyLiters),
         Flow_Rate: toNumber(payload.Flow_Rate ?? payload.flowRate),
         Monthly_Units: toNumber(payload.Monthly_Units ?? payload.monthlyUnits),
         Pressure: toNumber(payload.Pressure ?? payload.pressure),
-        Total_Units: toNumber(payload.Total_Units ?? payload.totalUnits ?? payload.Total_Consumption ?? payload.totalConsumption),
-        Last_Updated: payload.Last_Updated || payload.lastUpdated || new Date().toISOString(),
-        createdAt: payload.Last_Updated || payload.lastUpdated || new Date().toISOString(),
+        Total_Units: toNumber(
+          payload.Total_M3 ?? payload.totalM3 ?? payload.Total_Units ?? payload.totalUnits ?? payload.Total_Consumption ?? payload.totalConsumption
+        ),
+        Last_Updated: payload.Last_Updated || payload.lastUpdated || payload.Timestamp || payload.timestamp || payload.ts || new Date().toISOString(),
+        createdAt: payload.Last_Updated || payload.lastUpdated || payload.Timestamp || payload.timestamp || payload.ts || new Date().toISOString(),
         source: "firebase-fallback",
       });
     }
@@ -249,7 +261,7 @@ const getRealtimePayloadBySerial = async (serialNumber, councilAreaHint = null) 
       // Check if this is root-level reading (has metrics directly)
       if ((path === "Meter_Readings" || path === "meterReadings") && 
           data && typeof data === "object" &&
-          (data.Flow_Rate !== undefined || data.Pressure !== undefined || data.Total_Units !== undefined)) {
+          (data.Flow_Rate !== undefined || data.Pressure !== undefined || data.Total_Units !== undefined || data.Total_M3 !== undefined)) {
         console.log(`[history-payload] Found root-level reading at ${path}:`, data);
         return {
           payload: data,

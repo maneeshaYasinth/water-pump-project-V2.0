@@ -22,17 +22,39 @@ const toNumber = (value) => {
 };
 
 const normalizeReading = (payload = {}) => ({
-  Daily_consumption: toNumber(payload.Daily_consumption ?? payload.dailyConsumption),
+  Daily_consumption: toNumber(
+    payload.Daily_consumption ?? payload.dailyConsumption ?? payload.Daily_Liters ?? payload.dailyLiters
+  ),
   Flow_Rate: toNumber(payload.Flow_Rate ?? payload.flowRate),
   Monthly_Units: toNumber(payload.Monthly_Units ?? payload.monthlyUnits),
   Pressure: toNumber(payload.Pressure ?? payload.pressure),
-  Total_Units: toNumber(payload.Total_Units ?? payload.totalUnits ?? payload.Total_Consumption ?? payload.totalConsumption),
-  Last_Updated: payload.Last_Updated || payload.lastUpdated || new Date().toISOString(),
+  Total_Units: toNumber(
+    payload.Total_M3 ?? payload.totalM3 ?? payload.Total_Units ?? payload.totalUnits ?? payload.Total_Consumption ?? payload.totalConsumption
+  ),
+  Last_Updated:
+    payload.Last_Updated ||
+    payload.lastUpdated ||
+    payload.Timestamp ||
+    payload.timestamp ||
+    payload.ts ||
+    new Date().toISOString(),
   serialNumber: payload.serialNumber || payload.SerialNumber || null,
   councilArea: payload.councilArea || payload.CouncilArea || null,
 });
 
 const parseTimestamp = (value) => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const millis = value < 1e12 ? value * 1000 : value;
+    return millis;
+  }
+
+  if (typeof value === "string") {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      return asNumber < 1e12 ? asNumber * 1000 : asNumber;
+    }
+  }
+
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 };
@@ -48,12 +70,24 @@ const readingStrength = (reading) => {
 };
 
 const normalizeMongoReading = (payload = {}) => ({
-  Daily_consumption: toNumber(payload.Daily_consumption ?? payload.dailyConsumption),
+  Daily_consumption: toNumber(
+    payload.Daily_consumption ?? payload.dailyConsumption ?? payload.Daily_Liters ?? payload.dailyLiters
+  ),
   Flow_Rate: toNumber(payload.Flow_Rate ?? payload.flowRate),
   Monthly_Units: toNumber(payload.Monthly_Units ?? payload.monthlyUnits),
   Pressure: toNumber(payload.Pressure ?? payload.pressure),
-  Total_Units: toNumber(payload.Total_Units ?? payload.totalUnits ?? payload.Total_Consumption ?? payload.totalConsumption),
-  Last_Updated: payload.Last_Updated || payload.lastUpdated || payload.updatedAt || payload.createdAt || new Date().toISOString(),
+  Total_Units: toNumber(
+    payload.Total_M3 ?? payload.totalM3 ?? payload.Total_Units ?? payload.totalUnits ?? payload.Total_Consumption ?? payload.totalConsumption
+  ),
+  Last_Updated:
+    payload.Last_Updated ||
+    payload.lastUpdated ||
+    payload.Timestamp ||
+    payload.timestamp ||
+    payload.ts ||
+    payload.updatedAt ||
+    payload.createdAt ||
+    new Date().toISOString(),
   serialNumber: payload.serialNumber || null,
   councilArea: payload.councilArea || null,
 });
@@ -148,9 +182,11 @@ const readRealtimeByMeter = async (meter) => {
               Pressure: rawValue.Pressure,
               Total_Consumption: rawValue.Total_Consumption,
               Total_Units: rawValue.Total_Units,
+              Total_M3: rawValue.Total_M3,
               Daily_consumption: rawValue.Daily_consumption,
+              Daily_Liters: rawValue.Daily_Liters,
               Monthly_Units: rawValue.Monthly_Units,
-              Last_Updated: rawValue.Last_Updated || rawValue.lastUpdated || rawValue.ts,
+              Last_Updated: rawValue.Last_Updated || rawValue.lastUpdated || rawValue.Timestamp || rawValue.timestamp || rawValue.ts,
             }
           : rawValue;
 

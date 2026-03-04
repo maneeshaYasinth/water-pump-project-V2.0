@@ -67,14 +67,21 @@ const ReadingHistory = () => {
 
         const normalized = rows
           .map((item) => ({
-            timestamp: item.createdAt || item.Last_Updated || item.lastUpdated || item.updatedAt,
+            timestamp: item.createdAt || item.Last_Updated || item.lastUpdated || item.updatedAt || item.Timestamp || item.timestamp || item.ts,
             flowRate: toNumber(item.Flow_Rate ?? item.flowRate ?? item.FlowRate),
             pressure: toNumber(item.Pressure ?? item.pressure),
-            totalUnits: toNumber(
-              item.Total_Units ?? item.totalUnits ?? item.Total_Consumption ?? item.totalConsumption
+            totalM3: toNumber(
+              item.rawData?.Total_M3 ??
+                item.rawData?.totalM3 ??
+                item.Total_M3 ??
+                item.totalM3 ??
+                item.Total_Units ??
+                item.totalUnits ??
+                item.Total_Consumption ??
+                item.totalConsumption
             ),
             dailyConsumption: toNumber(
-              item.Daily_consumption ?? item.Daily_Consumption ?? item.dailyConsumption
+              item.Daily_consumption ?? item.Daily_Consumption ?? item.dailyConsumption ?? item.Daily_Liters ?? item.dailyLiters
             ),
             monthlyUnits: toNumber(item.Monthly_Units ?? item.monthlyUnits),
           }))
@@ -123,7 +130,7 @@ const ReadingHistory = () => {
     return [
       { title: "Flow Rate", value: `${latest.flowRate} L/min` },
       { title: "Pressure", value: `${latest.pressure} bar` },
-      { title: "Total Units", value: `${latest.totalUnits} m³` },
+      { title: "Total M3", value: `${latest.totalM3} m³` },
       { title: "Daily Consumption", value: `${latest.dailyConsumption} L` },
     ];
   }, [latest]);
@@ -180,7 +187,7 @@ const ReadingHistory = () => {
             </div>
 
             <div className="bg-white/80 border border-sky-200 rounded-2xl p-4 mb-6 shadow-sm h-96">
-              <h2 className="text-lg font-semibold text-sky-800 mb-3">Flow Rate & Pressure Trend</h2>
+              <h2 className="text-lg font-semibold text-sky-800 mb-3">Flow Rate, Pressure & Total M3 Trend</h2>
               <ResponsiveContainer width="100%" height="88%">
                 <LineChart data={historyRows}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -206,6 +213,15 @@ const ReadingHistory = () => {
                     dot={historyRows.length <= 1}
                     isAnimationActive={false}
                   />
+                  <Line
+                    type="monotone"
+                    dataKey="totalM3"
+                    name="Total M3"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={historyRows.length <= 1}
+                    isAnimationActive={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -221,7 +237,7 @@ const ReadingHistory = () => {
                   <Legend />
                   <Bar dataKey="dailyConsumption" name="Daily Consumption" fill="#16a34a" isAnimationActive={false} />
                   <Bar dataKey="monthlyUnits" name="Monthly Units" fill="#7c3aed" isAnimationActive={false} />
-                  <Bar dataKey="totalUnits" name="Total Units" fill="#0ea5e9" isAnimationActive={false} />
+                  <Bar dataKey="totalM3" name="Total M3" fill="#0ea5e9" isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

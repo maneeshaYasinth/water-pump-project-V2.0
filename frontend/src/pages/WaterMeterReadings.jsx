@@ -5,6 +5,42 @@ import { getUserCouncilArea, isAuthority } from "../services/authService";
 import { getUserMeters } from "../services/meterService";
 import Loader from "../components/Loader";
 
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatTimestamp = (value) => {
+  if (!value) return "--";
+
+  let date;
+  if (typeof value === "number") {
+    date = new Date(value < 1e12 ? value * 1000 : value);
+  } else {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      date = new Date(asNumber < 1e12 ? asNumber * 1000 : asNumber);
+    } else {
+      date = new Date(value);
+    }
+  }
+
+  if (Number.isNaN(date.getTime())) return "--";
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+};
+
+const normalizeRealtimeData = (payload = {}) => ({
+  dailyLiters: toNumber(payload.Daily_consumption ?? payload.dailyConsumption ?? payload.Daily_Liters ?? payload.dailyLiters),
+  flowRate: toNumber(payload.Flow_Rate ?? payload.flowRate),
+  monthlyUnits: toNumber(payload.Monthly_Units ?? payload.monthlyUnits),
+  pressure: toNumber(payload.Pressure ?? payload.pressure),
+  totalM3: toNumber(
+    payload.Total_M3 ?? payload.totalM3 ?? payload.Total_Units ?? payload.totalUnits ?? payload.Total_Consumption ?? payload.totalConsumption
+  ),
+  lastUpdated: payload.Last_Updated || payload.lastUpdated || payload.Timestamp || payload.timestamp || payload.ts || null,
+  source: payload.sourcePath || payload.source || "--",
+});
+
 const WaterMeterReadings = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -41,7 +77,7 @@ const WaterMeterReadings = () => {
   const fetchData = async () => {
     try {
       const waterData = await getWaterData(selectedSerialNumber || undefined);
-      setData(waterData);
+      setData(normalizeRealtimeData(waterData));
       setLoading(false);
     } catch (error) {
       console.error("Error fetching water data:", error);
@@ -116,13 +152,19 @@ const WaterMeterReadings = () => {
         {loading ? (
           <Loader />
         ) : data ? (
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 transition-all duration-500 ease-in-out">
-            <ReadingCard title="Daily Consumption" value={`${data.Daily_consumption} L`} />
-            <ReadingCard title="Flow Rate" value={`${data.Flow_Rate} L/min`} />
-            <ReadingCard title="Monthly Units" value={`${data.Monthly_Units} m³`} />
-            <ReadingCard title="Pressure" value={`${data.Pressure} bar`} />
-            <ReadingCard title="Total Units" value={`${data.Total_Units} m³`} />
-          </div>
+          <>
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6 transition-all duration-500 ease-in-out">
+              <ReadingCard title="Daily Liters" value={`${data.dailyLiters} L`} />
+              <ReadingCard title="Flow Rate" value={`${data.flowRate} L/min`} />
+              <ReadingCard title="Monthly Units" value={`${data.monthlyUnits} m³`} />
+              <ReadingCard title="Pressure" value={`${data.pressure} bar`} />
+              <ReadingCard title="Total M3" value={`${data.totalM3} m³`} />
+            </div>
+            <div className="mt-6 text-center text-sky-900 text-sm font-medium">
+              <p>Last Updated: {formatTimestamp(data.lastUpdated)}</p>
+              <p>Source: {data.source}</p>
+            </div>
+          </>
         ) : (
           <p className="text-center text-red-500">Failed to load data</p>
         )}

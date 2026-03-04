@@ -190,7 +190,15 @@ export default function Dashboard() {
                 hour: "2-digit",
                 minute: "2-digit",
               }),
-              flow: data.Flow_Rate,
+              flow: data.Flow_Rate ?? data.flowRate ?? 0,
+              totalM3:
+                data.Total_M3 ??
+                data.totalM3 ??
+                data.Total_Units ??
+                data.totalUnits ??
+                data.Total_Consumption ??
+                data.totalConsumption ??
+                0,
             };
 
             setChartData((prev) => {
@@ -361,7 +369,7 @@ export default function Dashboard() {
                     <div className="p-3 bg-emerald-50 rounded-lg">
                       <p className="text-sm text-emerald-600 font-medium">Total</p>
                       <p className="text-xl font-semibold text-emerald-900">
-                        {meter.Total_Consumption || 0}
+                        {meter.Total_M3 ?? meter.totalM3 ?? meter.Total_Units ?? meter.totalUnits ?? meter.Total_Consumption ?? meter.totalConsumption ?? 0}
                         <span className="text-sm text-emerald-600 ml-1">L</span>
                       </p>
                     </div>
@@ -432,6 +440,10 @@ export default function Dashboard() {
                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
                     <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                   </linearGradient>
+                  <linearGradient id="colorM3" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.7} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="time" axisLine={false} tickLine={false} />
@@ -447,6 +459,21 @@ export default function Dashboard() {
                   dot={{ r: 4, fill: "#3b82f6" }}
                   activeDot={{
                     r: 6,
+                    stroke: "white",
+                    strokeWidth: 2,
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="totalM3"
+                  name="Total M3"
+                  stroke="#10b981"
+                  fillOpacity={1}
+                  fill="url(#colorM3)"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: "#10b981" }}
+                  activeDot={{
+                    r: 5,
                     stroke: "white",
                     strokeWidth: 2,
                   }}

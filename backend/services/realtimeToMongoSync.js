@@ -53,10 +53,15 @@ const isMeterLikeObject = (value) => {
     "totalConsumption" in value ||
     "Daily_consumption" in value ||
     "dailyConsumption" in value ||
+    "Daily_Liters" in value ||
+    "dailyLiters" in value ||
     "Monthly_Units" in value ||
     "monthlyUnits" in value ||
     "Total_Units" in value ||
-    "totalUnits" in value
+    "totalUnits" in value ||
+    "Total_M3" in value ||
+    "totalM3" in value ||
+    "Timestamp" in value
   );
 };
 
@@ -102,14 +107,30 @@ const normalizeReading = (payload, keyPath, sourcePath) => {
   const flowRate = toNumber(source.Flow_Rate ?? source.flowRate ?? source.flow_rate ?? source.FlowRate);
   const pressure = toNumber(source.Pressure ?? source.pressure);
   const totalConsumption = toNumber(
-    source.Total_Consumption ?? source.totalConsumption ?? source.total_consumption ?? source.TotalConsumption
+    source.Total_M3 ??
+      source.totalM3 ??
+      source.Total_Units ??
+      source.totalUnits ??
+      source.Total_Consumption ??
+      source.totalConsumption ??
+      source.total_consumption ??
+      source.TotalConsumption
   );
-  const totalUnits = toNumber(source.Total_Units ?? source.totalUnits ?? source.TotalUnits ?? totalConsumption);
+  const totalUnits = toNumber(
+    source.Total_M3 ?? source.totalM3 ?? source.Total_Units ?? source.totalUnits ?? source.TotalUnits ?? totalConsumption
+  );
   const dailyConsumption = toNumber(
-    source.Daily_consumption ?? source.Daily_Consumption ?? source.dailyConsumption ?? source.daily_consumption
+    source.Daily_consumption ??
+      source.Daily_Consumption ??
+      source.dailyConsumption ??
+      source.daily_consumption ??
+      source.Daily_Liters ??
+      source.dailyLiters
   );
   const monthlyUnits = toNumber(source.Monthly_Units ?? source.monthlyUnits ?? source.MonthlyUnits);
-  const lastUpdated = toDate(source.Last_Updated ?? source.lastUpdated ?? source.updatedAt ?? source.timestamp) || new Date();
+  const lastUpdated =
+    toDate(source.Last_Updated ?? source.lastUpdated ?? source.updatedAt ?? source.Timestamp ?? source.timestamp ?? source.ts) ||
+    new Date();
 
   return {
     serialNumber,
@@ -190,7 +211,8 @@ const syncCurrentRealtimeToMongo = async (options = {}) => {
       // Check if this is a root-level reading (has metrics directly)
       if (rootData && typeof rootData === "object" && 
           (rootData.Flow_Rate !== undefined || rootData.Pressure !== undefined || 
-           rootData.Total_Units !== undefined || rootData.Daily_consumption !== undefined)) {
+           rootData.Total_Units !== undefined || rootData.Total_M3 !== undefined ||
+           rootData.Daily_consumption !== undefined || rootData.Daily_Liters !== undefined)) {
         
         console.log(`[sync] Found root-level readings at ${rootPath}:`, rootData);
         
@@ -338,7 +360,8 @@ const startRealtimeToMongoSync = () => {
           // Check if this is a root-level reading (has metrics directly)
           if (rootData && typeof rootData === "object" && 
               (rootData.Flow_Rate !== undefined || rootData.Pressure !== undefined || 
-               rootData.Total_Units !== undefined || rootData.Daily_consumption !== undefined)) {
+               rootData.Total_Units !== undefined || rootData.Total_M3 !== undefined ||
+               rootData.Daily_consumption !== undefined || rootData.Daily_Liters !== undefined)) {
             
             console.log(`[listener] Root-level reading updated at ${rootPath}, syncing to MongoDB...`);
             
