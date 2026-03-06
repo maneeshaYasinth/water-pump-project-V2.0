@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { controlValve, getCouncilMeters, getWaterData } from "../services/waterService";
+import { controlValve, getCouncilMeters, getWaterDataPublic } from "../services/waterService";
 import { getUserCouncilArea, isAuthority } from "../services/authService";
 import { getUserMeters } from "../services/meterService";
 import Loader from "../components/Loader";
@@ -41,6 +41,9 @@ const normalizeRealtimeData = (payload = {}) => ({
   source: payload.sourcePath || payload.source || "--",
 });
 
+const normalizeSerial = (value) => (value || "").trim().toUpperCase();
+const LIVE_BYPASS_SERIAL = "METER_002";
+
 const WaterMeterReadings = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,35 +51,54 @@ const WaterMeterReadings = () => {
   const [valveOpen, setValveOpen] = useState(false);
   const [controllingValve, setControllingValve] = useState(false);
   const [valveMessage, setValveMessage] = useState("");
+  const [activeSerialNumber, setActiveSerialNumber] = useState((localStorage.getItem("selectedMeter") || "").trim());
   const navigate = useNavigate();
 
   const userIsAuthority = isAuthority();
   const councilArea = getUserCouncilArea();
 
-  const selectedSerialNumber = localStorage.getItem("selectedMeter");
+  const selectedSerialNumber = (localStorage.getItem("selectedMeter") || "").trim();
 
   const loadSelectedMeter = async () => {
-    if (!selectedSerialNumber) return;
-
     try {
       const response = userIsAuthority && councilArea
         ? await getCouncilMeters(councilArea)
         : await getUserMeters();
 
       const meters = Array.isArray(response?.data) ? response.data : [];
-      const selectedMeter = meters.find((meter) => meter.serialNumber === selectedSerialNumber);
 
-      if (selectedMeter?._id) {
-        setSelectedMeterId(selectedMeter._id);
+      if (!meters.length) {
+        setSelectedMeterId(null);
+        return "";
       }
+
+      const normalizedSelected = normalizeSerial(selectedSerialNumber);
+      const selectedMeter = meters.find((meter) => normalizeSerial(meter.serialNumber) === normalizedSelected);
+      const fallbackMeter = meters[0] || null;
+      const resolvedMeter = selectedMeter || fallbackMeter;
+
+      if (resolvedMeter?.serialNumber && normalizeSerial(resolvedMeter.serialNumber) !== normalizedSelected) {
+        localStorage.setItem("selectedMeter", resolvedMeter.serialNumber);
+        setActiveSerialNumber(resolvedMeter.serialNumber);
+      } else if (resolvedMeter?.serialNumber) {
+        setActiveSerialNumber(resolvedMeter.serialNumber);
+      }
+
+      if (resolvedMeter?._id) {
+        setSelectedMeterId(resolvedMeter._id);
+      }
+
+      return resolvedMeter?.serialNumber || "";
     } catch (error) {
       console.error("Error loading selected meter for valve control:", error);
+      return "";
     }
   };
 
-  const fetchData = async () => {
+  const fetchData = async (serialToUse) => {
     try {
-      const waterData = await getWaterData(selectedSerialNumber || undefined);
+      const serial = (serialToUse || LIVE_BYPASS_SERIAL || activeSerialNumber || localStorage.getItem("selectedMeter") || "").trim();
+      const waterData = await getWaterDataPublic(serial || undefined);
       setData(normalizeRealtimeData(waterData));
       setLoading(false);
     } catch (error) {
@@ -109,10 +131,23 @@ const WaterMeterReadings = () => {
   };
 
   useEffect(() => {
-    fetchData();
-    loadSelectedMeter();
-    const interval = setInterval(fetchData, 5000); // refresh every 5s
-    return () => clearInterval(interval);
+    let intervalId;
+
+    const initializeLiveReadings = async () => {
+      const resolvedSerial = await loadSelectedMeter();
+      await fetchData(LIVE_BYPASS_SERIAL || resolvedSerial);
+
+      intervalId = setInterval(() => {
+        const currentSerial = (LIVE_BYPASS_SERIAL || localStorage.getItem("selectedMeter") || resolvedSerial || "").trim();
+        fetchData(currentSerial);
+      }, 5000);
+    };
+
+    initializeLiveReadings();
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
   }, []);
 
   return (

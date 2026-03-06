@@ -12,6 +12,19 @@ export const getWaterData = async (serialNumber) => {
   }
 };
 
+export const getWaterDataPublic = async (serialNumber) => {
+  try {
+    const params = {};
+    if (serialNumber) params.serialNumber = serialNumber;
+
+    const res = await WATER_API.get("/readings/realtime-public", { params });
+    return res.data;
+  } catch (err) {
+    console.error("Error fetching public realtime water data:", err);
+    throw err;
+  }
+};
+
 export const getReadingHistory = async ({ serialNumber, limit = 200, startDate, endDate } = {}) => {
   try {
     const params = { limit };
@@ -23,6 +36,21 @@ export const getReadingHistory = async ({ serialNumber, limit = 200, startDate, 
     return res.data;
   } catch (err) {
     console.error("Error fetching reading history:", err);
+    throw err;
+  }
+};
+
+export const getReadingHistoryPublic = async ({ serialNumber, limit = 200, startDate, endDate } = {}) => {
+  try {
+    const params = { limit };
+    if (serialNumber) params.serialNumber = serialNumber;
+    if (startDate) params.startDate = startDate;
+    if (endDate) params.endDate = endDate;
+
+    const res = await WATER_API.get("/readings/history-public", { params });
+    return res.data;
+  } catch (err) {
+    console.error("Error fetching public reading history:", err);
     throw err;
   }
 };

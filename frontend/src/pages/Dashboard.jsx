@@ -168,24 +168,41 @@ export default function Dashboard() {
       return;
     }
 
-    const metersRef = userIsAdmin
-      ? ref(db, `Meter_Readings/${councilArea}`)
-      : ref(db, "Meter_Readings");
+    const selectedMeter = localStorage.getItem("selectedMeter");
+    const metersRef = ref(db, "Meters");
 
     const unsubscribe = onValue(
       metersRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          const data = snapshot.val();
+          const metersTree = snapshot.val() || {};
+          const parsedMeters = Object.entries(metersTree).map(([serialNumber, meterNode]) => {
+            const latest = meterNode?.latest || meterNode?.readings?.current || meterNode || {};
+            const valvePayload = meterNode?.valve?.status || {};
+
+            return {
+              id: latest.meterId || meterNode?.meterId || serialNumber,
+              serialNumber,
+              councilArea: latest.councilArea || latest.CouncilArea || meterNode?.councilArea || meterNode?.CouncilArea || null,
+              valve_status:
+                valvePayload?.status === "open"
+                  ? true
+                  : valvePayload?.status === "close" || valvePayload?.status === "closed"
+                  ? false
+                  : latest.valve_status ?? true,
+              ...latest,
+            };
+          });
 
           if (userIsAdmin) {
-            const formattedMeters = Object.entries(data).map(([id, val]) => ({
-              id,
-              ...val,
-            }));
+            const formattedMeters = councilArea
+              ? parsedMeters.filter((meter) => meter.councilArea === councilArea)
+              : parsedMeters;
             setCouncilMeters(formattedMeters);
           } else {
-            setCurrentData(data);
+            const liveMeter = parsedMeters.find((meter) => meter.serialNumber === selectedMeter) || parsedMeters[0] || {};
+
+            setCurrentData(liveMeter);
 
             // Chart update (keep last 5 min)
             const now = Date.now();
@@ -195,14 +212,14 @@ export default function Dashboard() {
                 hour: "2-digit",
                 minute: "2-digit",
               }),
-              flow: data.Flow_Rate ?? data.flowRate ?? 0,
+              flow: liveMeter.Flow_Rate ?? liveMeter.flowRate ?? 0,
               totalM3:
-                data.Total_M3 ??
-                data.totalM3 ??
-                data.Total_Units ??
-                data.totalUnits ??
-                data.Total_Consumption ??
-                data.totalConsumption ??
+                liveMeter.Total_M3 ??
+                liveMeter.totalM3 ??
+                liveMeter.Total_Units ??
+                liveMeter.totalUnits ??
+                liveMeter.Total_Consumption ??
+                liveMeter.totalConsumption ??
                 0,
             };
 
@@ -213,7 +230,15 @@ export default function Dashboard() {
           }
         } else {
           // no firebase data yet
-          setCouncilMeters([]);
+          if (userIsAdmin) {
+            setCouncilMeters([]);
+          } else {
+            setCurrentData({
+              Flow_Rate: 0,
+              Pressure: 0,
+              Total_Consumption: 0,
+            });
+          }
         }
 
         // Fallback mock data
@@ -270,31 +295,6 @@ export default function Dashboard() {
             name: "Greenfield Zone",
             status: "ok",
             pressure: 3.0,
-          },
-        ]);
-
-        // mock admin meters
-        setCouncilMeters([
-          {
-            id: "MTR001",
-            Flow_Rate: 210,
-            Pressure: 3.2,
-            Total_Consumption: 11890,
-            valve_status: true,
-          },
-          {
-            id: "MTR002",
-            Flow_Rate: 185,
-            Pressure: 2.9,
-            Total_Consumption: 9745,
-            valve_status: false,
-          },
-          {
-            id: "MTR003",
-            Flow_Rate: 230,
-            Pressure: 3.5,
-            Total_Consumption: 10230,
-            valve_status: true,
           },
         ]);
 

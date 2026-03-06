@@ -8,12 +8,8 @@ let periodicSyncTimer = null;
 const lastPersistedSignatures = new Map();
 const PERIODIC_SYNC_MS = 2 * 60 * 1000;
 const SOURCE_CONFIGS = [
-  // NOTE: Removed "meters" path because canonical structure has zeros
-  // Root-level Meter_Readings has the actual values and is synced separately
-  { path: "Meter_Readings", sourcePath: "Meter_Readings" },
-  { path: "meterReadings", sourcePath: "meterReadings" },
-  { path: "MeterReadings", sourcePath: "MeterReadings" },
-  { path: "meter_readings", sourcePath: "meter_readings" },
+  // Strict source: sync only from new Firebase structure
+  { path: "Meters", sourcePath: "Meters" },
 ];
 
 const toNumber = (value) => {
@@ -36,6 +32,19 @@ const toNumber = (value) => {
 
 const toDate = (value) => {
   if (!value) return null;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const millis = value < 1e12 ? value * 1000 : value;
+    const parsed = new Date(millis);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "string") {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      const millis = asNumber < 1e12 ? asNumber * 1000 : asNumber;
+      const parsed = new Date(millis);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+  }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
@@ -78,8 +87,26 @@ const walkMeterObjects = (node, path = []) => {
   return entries;
 };
 
+const extractLatestEntriesFromMeters = (metersTree) => {
+  if (!metersTree || typeof metersTree !== "object") return [];
+
+  return Object.entries(metersTree)
+    .map(([serial, meterNode]) => {
+      const latestPayload = meterNode?.latest;
+      if (!latestPayload || typeof latestPayload !== "object") return null;
+      if (!isMeterLikeObject(latestPayload)) return null;
+      return { keyPath: [serial, "latest"], payload: latestPayload };
+    })
+    .filter(Boolean);
+};
+
 const parseMeta = (keyPath, payload) => {
-  const hasCanonicalShape = keyPath.includes("readings") || keyPath.includes("current") || keyPath.includes("valve");
+  const hasCanonicalShape =
+    keyPath.includes("readings") ||
+    keyPath.includes("current") ||
+    keyPath.includes("valve") ||
+    keyPath.includes("latest") ||
+    keyPath.includes("history");
   const serialFromPath = hasCanonicalShape ? keyPath[0] : keyPath[keyPath.length - 1];
   const councilFromPath = hasCanonicalShape ? null : keyPath[0];
 
@@ -191,7 +218,7 @@ const persistReadings = async (entries, sourcePath, { forceWrite = false } = {})
 
 const syncTreeToMongo = async (treeValue, sourcePath, options = {}) => {
   if (!treeValue || typeof treeValue !== "object") return;
-  const entries = walkMeterObjects(treeValue);
+  const entries = sourcePath === "Meters" ? extractLatestEntriesFromMeters(treeValue) : walkMeterObjects(treeValue);
   return persistReadings(entries, sourcePath, options);
 };
 
@@ -199,54 +226,7 @@ const syncCurrentRealtimeToMongo = async (options = {}) => {
   let totalWrites = 0;
   const sourceStatus = [];
 
-  // First, check for root-level readings and sync them for all meters
-  for (const rootPath of ["Meter_Readings", "meterReadings"]) {
-    const rootSnapshot = await get(ref(db, rootPath));
-    const exists = rootSnapshot.exists();
-    sourceStatus.push(`${rootPath}-root:${exists ? "found" : "missing"}`);
-    
-    if (exists) {
-      const rootData = rootSnapshot.val();
-      
-      // Check if this is a root-level reading (has metrics directly)
-      if (rootData && typeof rootData === "object" && 
-          (rootData.Flow_Rate !== undefined || rootData.Pressure !== undefined || 
-           rootData.Total_Units !== undefined || rootData.Total_M3 !== undefined ||
-           rootData.Daily_consumption !== undefined || rootData.Daily_Liters !== undefined)) {
-        
-        console.log(`[sync] Found root-level readings at ${rootPath}:`, rootData);
-        
-        // Get all meters to sync this reading for each
-        const allMeters = await Meter.find({}).select("serialNumber councilArea").lean();
-        
-        for (const meter of allMeters) {
-          if (!meter.serialNumber) continue;
-          
-          const normalized = normalizeReading(rootData, [rootPath], rootPath);
-          normalized.serialNumber = meter.serialNumber;
-          normalized.councilArea = meter.councilArea || null;
-          
-          const cacheKey = `${normalized.councilArea || "unknown"}__${normalized.serialNumber}`;
-          const signature = getSignature(normalized);
-          
-          if (!options.forceWrite && lastPersistedSignatures.get(cacheKey) === signature) {
-            continue;
-          }
-          
-          lastPersistedSignatures.set(cacheKey, signature);
-          
-          try {
-            await MeterReading.create(normalized);
-            totalWrites++;
-          } catch (error) {
-            console.error(`[sync] Failed to write root reading for ${meter.serialNumber}:`, error.message);
-          }
-        }
-      }
-    }
-  }
-
-  // Then sync tree-based sources
+  // Sync tree-based sources
   for (const source of SOURCE_CONFIGS) {
     const snapshot = await get(ref(db, source.path));
     const exists = snapshot.exists();
@@ -344,56 +324,6 @@ const ensureCanonicalRealtimeStructure = async () => {
 const startRealtimeToMongoSync = () => {
   if (isStarted) return;
   isStarted = true;
-
-  // Listen to root-level Meter_Readings and meterReadings for direct updates
-  for (const rootPath of ["Meter_Readings", "meterReadings"]) {
-    const rootRef = ref(db, rootPath);
-    
-    onValue(
-      rootRef,
-      async (snapshot) => {
-        try {
-          if (!snapshot.exists()) return;
-          
-          const rootData = snapshot.val();
-          
-          // Check if this is a root-level reading (has metrics directly)
-          if (rootData && typeof rootData === "object" && 
-              (rootData.Flow_Rate !== undefined || rootData.Pressure !== undefined || 
-               rootData.Total_Units !== undefined || rootData.Total_M3 !== undefined ||
-               rootData.Daily_consumption !== undefined || rootData.Daily_Liters !== undefined)) {
-            
-            console.log(`[listener] Root-level reading updated at ${rootPath}, syncing to MongoDB...`);
-            
-            // Get all meters to sync this reading for each
-            const allMeters = await Meter.find({}).select("serialNumber councilArea").lean();
-            
-            for (const meter of allMeters) {
-              if (!meter.serialNumber) continue;
-              
-              const normalized = normalizeReading(rootData, [rootPath], rootPath);
-              normalized.serialNumber = meter.serialNumber;
-              normalized.councilArea = meter.councilArea || null;
-              
-              try {
-                await MeterReading.create(normalized);
-              } catch (error) {
-                // Ignore duplicate errors, just log others
-                if (!error.message.includes("duplicate")) {
-                  console.error(`[listener] Failed to write root reading for ${meter.serialNumber}:`, error.message);
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error(`Error syncing root ${rootPath} to MongoDB:`, error.message);
-        }
-      },
-      (error) => {
-        console.error(`Root ${rootPath} listener error:`, error.message);
-      }
-    );
-  }
 
   // Listen to tree-based sources
   for (const source of SOURCE_CONFIGS) {

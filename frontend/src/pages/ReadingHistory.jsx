@@ -13,8 +13,10 @@ import {
   Bar,
 } from "recharts";
 import { Download, FileText } from "lucide-react";
-import { getReadingHistory } from "../services/waterService";
+import { getReadingHistoryPublic } from "../services/waterService";
 import Loader from "../components/Loader";
+
+const LIVE_BYPASS_SERIAL = "METER_002";
 
 const toNumber = (value) => {
   const parsed = Number(value);
@@ -36,7 +38,7 @@ const toDateInputValue = (date) => {
 
 const ReadingHistory = () => {
   const navigate = useNavigate();
-  const selectedSerialNumber = localStorage.getItem("selectedMeter");
+  const selectedSerialNumber = LIVE_BYPASS_SERIAL;
 
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,7 +66,7 @@ const ReadingHistory = () => {
         }
         setError("");
 
-        const payload = await getReadingHistory({
+        const payload = await getReadingHistoryPublic({
           serialNumber: selectedSerialNumber || undefined,
           limit: 5000,
           startDate,
@@ -75,17 +77,7 @@ const ReadingHistory = () => {
 
         let rows = Array.isArray(payload?.readings) ? payload.readings : [];
 
-        if (!rows.length && selectedSerialNumber) {
-          const fallbackPayload = await getReadingHistory({
-            limit: 5000,
-            startDate,
-            endDate: endDate ? `${endDate}T23:59:59.999Z` : undefined,
-          });
-          rows = Array.isArray(fallbackPayload?.readings) ? fallbackPayload.readings : [];
-          setUsingFallbackData(rows.length > 0);
-        } else {
-          setUsingFallbackData(false);
-        }
+        setUsingFallbackData(false);
 
         const normalized = rows
           .map((item) => ({

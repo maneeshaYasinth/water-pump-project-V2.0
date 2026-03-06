@@ -85,6 +85,19 @@ const toNumber = (value) => {
 
 const toDate = (value) => {
   if (!value) return null;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const millis = value < 1e12 ? value * 1000 : value;
+    const parsed = new Date(millis);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "string") {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) {
+      const millis = asNumber < 1e12 ? asNumber * 1000 : asNumber;
+      const parsed = new Date(millis);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+  }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
@@ -153,6 +166,53 @@ const formatReading = (payload, meter) => ({
   Last_Updated: payload?.Last_Updated || payload?.lastUpdated || payload?.Timestamp || payload?.timestamp || payload?.ts || new Date().toISOString(),
 });
 
+const buildMongoRealtimeReading = (payload, meter, sourcePath = "Meters/latest") => {
+  const formatted = formatReading(payload, meter);
+  return {
+    serialNumber: formatted.serialNumber,
+    councilArea: formatted.councilArea,
+    Daily_consumption: formatted.Daily_consumption,
+    Flow_Rate: formatted.Flow_Rate,
+    Monthly_Units: formatted.Monthly_Units,
+    Pressure: formatted.Pressure,
+    Total_Units: formatted.Total_Units,
+    Total_Consumption: formatted.Total_Units,
+    Last_Updated: toDate(formatted.Last_Updated) || new Date(),
+    sourcePath,
+    rawData: payload || {},
+  };
+};
+
+const hasSameReadingSignature = (latestMongo, current) => {
+  if (!latestMongo) return false;
+  const latestTime = toDate(latestMongo.Last_Updated || latestMongo.createdAt)?.getTime() || 0;
+  const currentTime = toDate(current.Last_Updated)?.getTime() || 0;
+
+  return (
+    Number(latestMongo.Flow_Rate ?? 0) === Number(current.Flow_Rate ?? 0) &&
+    Number(latestMongo.Pressure ?? 0) === Number(current.Pressure ?? 0) &&
+    Number(latestMongo.Total_Units ?? latestMongo.Total_Consumption ?? 0) === Number(current.Total_Units ?? 0) &&
+    Number(latestMongo.Daily_consumption ?? 0) === Number(current.Daily_consumption ?? 0) &&
+    Number(latestMongo.Monthly_Units ?? 0) === Number(current.Monthly_Units ?? 0) &&
+    latestTime === currentTime
+  );
+};
+
+const persistRealtimeReadingToMongo = async (payload, meter, sourcePath = "Meters/latest") => {
+  const doc = buildMongoRealtimeReading(payload, meter, sourcePath);
+  if (!doc.serialNumber) return;
+
+  const latestMongo = await MeterReading.findOne({ serialNumber: doc.serialNumber })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  if (hasSameReadingSignature(latestMongo, doc)) {
+    return;
+  }
+
+  await MeterReading.create(doc);
+};
+
 const isMeterLikeObject = (value) => {
   if (!value || typeof value !== "object") return false;
   return (
@@ -190,7 +250,7 @@ const walkMeterObjects = (node, path = []) => {
 };
 
 const buildRealtimeFallbackReadings = async (match, limit) => {
-  const sourcePaths = ["Meter_Readings", "meterReadings", "meters"];
+  const sourcePaths = ["Meters"];
   const rows = [];
   const requestedSerials =
     match?.serialNumber && typeof match.serialNumber === "object" && Array.isArray(match.serialNumber.$in)
@@ -199,44 +259,7 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
       ? [match.serialNumber]
       : [];
 
-  // Try reading root-level Meter_Readings first
-  for (const rootPath of ["Meter_Readings", "meterReadings"]) {
-    const rootSnapshot = await get(ref(db, rootPath));
-    if (!rootSnapshot.exists()) continue;
-    
-    const rootData = rootSnapshot.val();
-    
-    // Check if this is a root-level reading (has Flow_Rate, Pressure, etc. directly)
-    if (rootData && typeof rootData === "object" && 
-        (rootData.Flow_Rate !== undefined || rootData.Pressure !== undefined || 
-       rootData.Total_Units !== undefined || rootData.Total_M3 !== undefined ||
-       rootData.Daily_consumption !== undefined || rootData.Daily_Liters !== undefined)) {
-      
-      console.log(`[history-fallback] Found root-level readings at ${rootPath}:`, rootData);
-      
-      // For each requested serial, create a reading from root data
-      const serialsToProcess = requestedSerials.length ? requestedSerials : ["unknown"];
-      
-      for (const serial of serialsToProcess) {
-        rows.push({
-          serialNumber: serial,
-          councilArea: match?.councilArea || null,
-          Daily_consumption: toNumber(rootData.Daily_consumption ?? rootData.dailyConsumption ?? rootData.Daily_Liters ?? rootData.dailyLiters),
-          Flow_Rate: toNumber(rootData.Flow_Rate ?? rootData.flowRate),
-          Monthly_Units: toNumber(rootData.Monthly_Units ?? rootData.monthlyUnits),
-          Pressure: toNumber(rootData.Pressure ?? rootData.pressure),
-          Total_Units: toNumber(
-            rootData.Total_M3 ?? rootData.totalM3 ?? rootData.Total_Units ?? rootData.totalUnits ?? rootData.Total_Consumption ?? rootData.totalConsumption
-          ),
-          Last_Updated: rootData.Last_Updated || rootData.lastUpdated || rootData.Timestamp || rootData.timestamp || rootData.ts || new Date().toISOString(),
-          createdAt: rootData.Last_Updated || rootData.lastUpdated || rootData.Timestamp || rootData.timestamp || rootData.ts || new Date().toISOString(),
-          source: `firebase-root-${rootPath}`,
-        });
-      }
-    }
-  }
-
-  // Tree-walk existing paths
+  // Tree-walk new Meters path only
   for (const sourcePath of sourcePaths) {
     const snapshot = await get(ref(db, sourcePath));
     if (!snapshot.exists()) continue;
@@ -251,11 +274,12 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
         payload.meterID ||
         payload.meterNo ||
         payload.deviceId ||
-        (sourcePath === "meters" ? entry.keyPath[0] : entry.keyPath[entry.keyPath.length - 1]) ||
+        (sourcePath === "meters" || sourcePath === "Meters" ? entry.keyPath[0] : entry.keyPath[entry.keyPath.length - 1]) ||
         null;
-      let councilArea = payload.councilArea || payload.CouncilArea || (sourcePath === "meters" ? null : entry.keyPath[0]) || null;
+      let councilArea =
+        payload.councilArea || payload.CouncilArea || (sourcePath === "meters" || sourcePath === "Meters" ? null : entry.keyPath[0]) || null;
 
-      if ((!serialNumber || serialNumber === "Meter_Readings" || serialNumber === "meterReadings") && requestedSerials.length) {
+      if (!serialNumber && requestedSerials.length) {
         serialNumber = requestedSerials[0];
       }
 
@@ -294,13 +318,9 @@ const buildRealtimeFallbackReadings = async (match, limit) => {
 
 const getRealtimePayloadBySerial = async (serialNumber, councilAreaHint = null) => {
   const directPaths = [
-    `meters/${serialNumber}/readings/current`,
-    councilAreaHint ? `Meter_Readings/${councilAreaHint}/${serialNumber}` : null,
-    councilAreaHint ? `meterReadings/${councilAreaHint}/${serialNumber}` : null,
-    `Meter_Readings/${serialNumber}`,
-    `meterReadings/${serialNumber}`,
-    `Meter_Readings`,
-    `meterReadings`,
+    `Meters/${serialNumber}/latest`,
+    `Meters/${serialNumber}`,
+    `Meters`,
   ].filter(Boolean);
 
   for (const path of directPaths) {
@@ -309,13 +329,17 @@ const getRealtimePayloadBySerial = async (serialNumber, councilAreaHint = null) 
       const parts = path.split("/");
       const data = directSnapshot.val();
       
-      // Check if this is root-level reading (has metrics directly)
-      if ((path === "Meter_Readings" || path === "meterReadings") && 
-          data && typeof data === "object" &&
-          (data.Flow_Rate !== undefined || data.Pressure !== undefined || data.Total_Units !== undefined || data.Total_M3 !== undefined)) {
-        console.log(`[history-payload] Found root-level reading at ${path}:`, data);
+      if (path === "Meters") {
+        const meterNode = data?.[serialNumber] || {};
         return {
-          payload: data,
+          payload: meterNode.latest || meterNode.readings?.current || meterNode,
+          councilArea: councilAreaHint,
+        };
+      }
+
+      if (path === `Meters/${serialNumber}`) {
+        return {
+          payload: data?.latest || data?.readings?.current || data || {},
           councilArea: councilAreaHint,
         };
       }
@@ -327,19 +351,24 @@ const getRealtimePayloadBySerial = async (serialNumber, councilAreaHint = null) 
     }
   }
 
-  const treePaths = ["meters", "Meter_Readings", "meterReadings"];
+  const treePaths = ["Meters"];
   for (const treePath of treePaths) {
     const treeSnapshot = await get(ref(db, treePath));
     if (!treeSnapshot.exists()) continue;
 
     const found = findSerialInTree(treeSnapshot.val(), serialNumber);
     if (found?.payload) {
+      const resolvedPayload =
+        treePath === "meters" || treePath === "Meters"
+          ? found.payload?.latest || found.payload?.readings?.current || found.payload
+          : found.payload;
+
       return {
-        payload: found.payload,
+        payload: resolvedPayload,
         councilArea:
-          found.payload?.councilArea ||
-          found.payload?.CouncilArea ||
-          (treePath === "meters" ? councilAreaHint : found.keyPath?.length > 1 ? found.keyPath[0] : councilAreaHint),
+          resolvedPayload?.councilArea ||
+          resolvedPayload?.CouncilArea ||
+          (treePath === "meters" || treePath === "Meters" ? councilAreaHint : found.keyPath?.length > 1 ? found.keyPath[0] : councilAreaHint),
       };
     }
   }
@@ -426,6 +455,41 @@ exports.getMeterHistory = async (req, res) => {
   }
 };
 
+exports.getMeterHistoryPublic = async (req, res) => {
+  try {
+    const serialNumber = req.query.serialNumber?.trim();
+    if (!serialNumber) {
+      return res.status(400).json({ message: "serialNumber is required" });
+    }
+
+    const queryLimit = parseLimit(req.query.limit);
+    const startDate = parseDateQuery(req.query.startDate);
+    const endDate = parseDateQuery(req.query.endDate);
+
+    const dateMatch = {};
+    if (startDate) dateMatch.$gte = startDate;
+    if (endDate) dateMatch.$lte = endDate;
+
+    const finalMatch = {
+      serialNumber,
+      ...(Object.keys(dateMatch).length ? { createdAt: dateMatch } : {}),
+    };
+
+    const readings = await MeterReading.find(finalMatch)
+      .sort({ createdAt: -1 })
+      .limit(queryLimit)
+      .lean();
+
+    return res.json({
+      count: readings.length,
+      readings,
+    });
+  } catch (error) {
+    console.error("Error fetching public meter history:", error);
+    return res.status(500).json({ message: "Failed to fetch meter history" });
+  }
+};
+
 exports.getRealtimeReading = async (req, res) => {
   try {
     const requestedSerial = req.query.serialNumber;
@@ -438,6 +502,12 @@ exports.getRealtimeReading = async (req, res) => {
 
       const realtimeHit = await getRealtimePayloadBySerial(requestedSerial);
       if (realtimeHit?.payload) {
+        await persistRealtimeReadingToMongo(
+          realtimeHit.payload,
+          { serialNumber: requestedSerial, councilArea: realtimeHit.councilArea || null },
+          "Meters/latest"
+        );
+
         return res.json({
           serialNumber: requestedSerial,
           councilArea: realtimeHit.councilArea || null,
@@ -458,14 +528,14 @@ exports.getRealtimeReading = async (req, res) => {
       if (requestedSerial) {
         meter = await Meter.findOne({ user: req.user.userId, serialNumber: requestedSerial }).lean();
       }
-      if (!meter) {
+      if (!meter && !requestedSerial) {
         meter = await Meter.findOne({ user: req.user.userId }).sort({ createdAt: -1 }).lean();
       }
     } else if (role === "admin" || role === "authority") {
       if (requestedSerial) {
         meter = await Meter.findOne({ councilArea: req.user?.councilArea, serialNumber: requestedSerial }).lean();
       }
-      if (!meter) {
+      if (!meter && !requestedSerial) {
         meter = await Meter.findOne({ councilArea: req.user?.councilArea }).sort({ createdAt: -1 }).lean();
       }
     } else {
@@ -487,40 +557,15 @@ exports.getRealtimeReading = async (req, res) => {
 
     const realtimeHit = await getRealtimePayloadBySerial(meter.serialNumber, meter.councilArea);
     if (realtimeHit?.payload) {
+      await persistRealtimeReadingToMongo(realtimeHit.payload, meter, "Meters/latest");
+
       return res.json({
         ...formatReading(realtimeHit.payload, meter),
         source: "firebase-realtime",
       });
     }
 
-    const latestMongo = await MeterReading.findOne({ serialNumber: meter.serialNumber })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    if (!latestMongo) {
-      return res.json({
-        serialNumber: meter.serialNumber,
-        councilArea: meter.councilArea,
-        Daily_consumption: 0,
-        Flow_Rate: 0,
-        Monthly_Units: 0,
-        Pressure: 0,
-        Total_Units: 0,
-        Last_Updated: new Date().toISOString(),
-      });
-    }
-
-    return res.json({
-      serialNumber: latestMongo.serialNumber,
-      councilArea: latestMongo.councilArea,
-      Daily_consumption: latestMongo.Daily_consumption ?? 0,
-      Flow_Rate: latestMongo.Flow_Rate ?? 0,
-      Monthly_Units: latestMongo.Monthly_Units ?? 0,
-      Pressure: latestMongo.Pressure ?? 0,
-      Total_Units: latestMongo.Total_Units ?? latestMongo.Total_Consumption ?? 0,
-      Last_Updated: latestMongo.Last_Updated || latestMongo.createdAt,
-      source: "mongodb-fallback",
-    });
+    return res.status(404).json({ message: "No realtime reading found for serial number in Meters/latest" });
   } catch (error) {
     console.error("Error fetching realtime meter reading:", error);
     return res.status(500).json({ message: "Failed to fetch realtime meter reading" });

@@ -1,7 +1,6 @@
 const { ref, get } = require("firebase/database");
 const db = require("../config/firebase");
 const Meter = require("../models/Meter");
-const MeterReading = require("../models/MeterReading");
 
 const toNumber = (value) => {
   if (value === null || value === undefined) return 0;
@@ -69,53 +68,6 @@ const readingStrength = (reading) => {
   );
 };
 
-const normalizeMongoReading = (payload = {}) => ({
-  Daily_consumption: toNumber(
-    payload.Daily_consumption ?? payload.dailyConsumption ?? payload.Daily_Liters ?? payload.dailyLiters
-  ),
-  Flow_Rate: toNumber(payload.Flow_Rate ?? payload.flowRate),
-  Monthly_Units: toNumber(payload.Monthly_Units ?? payload.monthlyUnits),
-  Pressure: toNumber(payload.Pressure ?? payload.pressure),
-  Total_Units: toNumber(
-    payload.Total_M3 ?? payload.totalM3 ?? payload.Total_Units ?? payload.totalUnits ?? payload.Total_Consumption ?? payload.totalConsumption
-  ),
-  Last_Updated:
-    payload.Last_Updated ||
-    payload.lastUpdated ||
-    payload.Timestamp ||
-    payload.timestamp ||
-    payload.ts ||
-    payload.updatedAt ||
-    payload.createdAt ||
-    new Date().toISOString(),
-  serialNumber: payload.serialNumber || null,
-  councilArea: payload.councilArea || null,
-});
-
-const readLatestMongoByMeter = async (meter) => {
-  const latest = await MeterReading.findOne({ serialNumber: meter.serialNumber })
-    .sort({ createdAt: -1 })
-    .lean();
-
-  if (!latest) return null;
-
-  console.log("[live-reading][mongo] latest fallback row found", {
-    serialNumber: meter.serialNumber,
-    Flow_Rate: latest.Flow_Rate,
-    Pressure: latest.Pressure,
-    Total_Units: latest.Total_Units,
-    Total_Consumption: latest.Total_Consumption,
-    Daily_consumption: latest.Daily_consumption,
-    Monthly_Units: latest.Monthly_Units,
-    Last_Updated: latest.Last_Updated,
-    createdAt: latest.createdAt,
-  });
-
-  return {
-    ...normalizeMongoReading(latest),
-    sourcePath: "mongo/latest",
-  };
-};
 
 const resolveReadableMeter = async (req) => {
   const requestedSerial = req.query.serialNumber?.trim();
@@ -130,7 +82,12 @@ const resolveReadableMeter = async (req) => {
 
   if (role === "authority") {
     if (requestedSerial) {
-      return Meter.findOne({ serialNumber: requestedSerial, councilArea: req.user?.councilArea }).lean();
+      const found = await Meter.findOne({ serialNumber: requestedSerial, councilArea: req.user?.councilArea }).lean();
+      if (found) return found;
+      return {
+        serialNumber: requestedSerial,
+        councilArea: req.user?.councilArea || null,
+      };
     }
     return Meter.findOne({ councilArea: req.user?.councilArea }).sort({ createdAt: -1 }).lean();
   }
@@ -141,7 +98,12 @@ const resolveReadableMeter = async (req) => {
       if (req.user?.councilArea) {
         adminMatch.councilArea = req.user.councilArea;
       }
-      return Meter.findOne(adminMatch).lean();
+      const found = await Meter.findOne(adminMatch).lean();
+      if (found) return found;
+      return {
+        serialNumber: requestedSerial,
+        councilArea: req.user?.councilArea || null,
+      };
     }
 
     const adminScope = req.user?.councilArea ? { councilArea: req.user.councilArea } : {};
@@ -153,16 +115,15 @@ const resolveReadableMeter = async (req) => {
 
 const readRealtimeByMeter = async (meter) => {
   const paths = [
-    `meters/${meter.serialNumber}/readings/current`,
-    meter.councilArea ? `Meter_Readings/${meter.councilArea}/${meter.serialNumber}` : null,
-    meter.councilArea ? `meterReadings/${meter.councilArea}/${meter.serialNumber}` : null,
-    `Meter_Readings/${meter.serialNumber}`,
-    `meterReadings/${meter.serialNumber}`,
-    "Meter_Readings",
-    "meterReadings",
+    `Meters/${meter.serialNumber}/latest`,
+    `Meters/${meter.serialNumber}`,
   ].filter(Boolean);
 
   const candidates = [];
+  const priorityByPath = {
+    [`Meters/${meter.serialNumber}/latest`]: 100,
+    [`Meters/${meter.serialNumber}`]: 95,
+  };
 
   for (const path of paths) {
     const snapshot = await get(ref(db, path));
@@ -176,19 +137,7 @@ const readRealtimeByMeter = async (meter) => {
       const rawValue = snapshot.val() || {};
 
       const rootReadingCandidate =
-        path === "Meter_Readings" || path === "meterReadings"
-          ? {
-              Flow_Rate: rawValue.Flow_Rate,
-              Pressure: rawValue.Pressure,
-              Total_Consumption: rawValue.Total_Consumption,
-              Total_Units: rawValue.Total_Units,
-              Total_M3: rawValue.Total_M3,
-              Daily_consumption: rawValue.Daily_consumption,
-              Daily_Liters: rawValue.Daily_Liters,
-              Monthly_Units: rawValue.Monthly_Units,
-              Last_Updated: rawValue.Last_Updated || rawValue.lastUpdated || rawValue.Timestamp || rawValue.timestamp || rawValue.ts,
-            }
-          : rawValue;
+        path === `Meters/${meter.serialNumber}` ? rawValue?.latest || rawValue : rawValue;
 
       const normalized = normalizeReading({
         serialNumber: meter.serialNumber,
@@ -206,6 +155,7 @@ const readRealtimeByMeter = async (meter) => {
       candidates.push({
         path,
         reading: normalized,
+        priority: priorityByPath[path] || 0,
         strength: readingStrength(normalized),
         timestamp: parseTimestamp(normalized.Last_Updated),
       });
@@ -225,6 +175,7 @@ const readRealtimeByMeter = async (meter) => {
   });
 
   candidates.sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
     if (b.strength !== a.strength) return b.strength - a.strength;
     return b.timestamp - a.timestamp;
   });
@@ -234,38 +185,12 @@ const readRealtimeByMeter = async (meter) => {
     sourcePath: candidates[0].path,
   };
 
-  if (readingStrength(bestReading) > 0) {
-    console.log("[live-reading] selected firebase candidate", {
-      serialNumber: meter.serialNumber,
-      sourcePath: bestReading.sourcePath,
-      reading: bestReading,
-    });
-    return bestReading;
-  }
-
-  console.log("[live-reading] firebase candidates are zero-like, switching to mongo fallback", {
+  console.log("[live-reading] selected firebase candidate", {
     serialNumber: meter.serialNumber,
     sourcePath: bestReading.sourcePath,
     reading: bestReading,
   });
-
-  const mongoFallback = await readLatestMongoByMeter(meter);
-
-  if (mongoFallback) {
-    console.log("[live-reading] selected mongo fallback", {
-      serialNumber: meter.serialNumber,
-      sourcePath: mongoFallback.sourcePath,
-      reading: mongoFallback,
-    });
-  } else {
-    console.log("[live-reading] mongo fallback not found, returning firebase zero-like candidate", {
-      serialNumber: meter.serialNumber,
-      sourcePath: bestReading.sourcePath,
-      reading: bestReading,
-    });
-  }
-
-  return mongoFallback || bestReading;
+  return bestReading;
 };
 
 exports.getWaterData = async (req, res) => {
